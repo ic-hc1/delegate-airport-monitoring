@@ -210,14 +210,14 @@ table.plain td.r, table.plain th.r { text-align: right; }
 @media (prefers-reduced-motion: no-preference) { .prog i, .bar i { transition: width .3s ease; } }
 
 /* ---- live status badge ---- */
-.live { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; font-weight: 600; border-radius: 4px; padding: 2px 7px; background: var(--surface-2); color: var(--fg-2); max-width: 100%; }
+.live { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 4px; font-size: 12px; font-weight: 600; border-radius: 4px; padding: 2px 7px; background: var(--surface-2); color: var(--fg-2); max-width: 100%; white-space: nowrap; }
 .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
 .live.landed { background: var(--good-soft); color: var(--good-ink); } .live.landed::before { background: var(--good); }
 .live.active { background: var(--accent-soft); color: var(--accent-ink); } .live.active::before { background: var(--accent); }
 .live.delayed { background: var(--warn-soft); color: var(--warn-ink); } .live.delayed::before { background: var(--warn); }
 .live.cancelled, .live.diverted { background: var(--crit-soft); color: var(--crit-ink); } .live.cancelled::before, .live.diverted::before { background: var(--crit); }
 .live.scheduled::before { background: var(--line-strong); }
-.live .det { font-weight: 500; color: var(--fg-2); }
+.live .det { font-weight: 500; color: var(--fg-2); white-space: normal; }
 .live.stale { opacity: .6; }
 .liveat { font-size: 12px; opacity: .85; display: inline-flex; align-items: center; gap: 6px; }
 .liveat::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
