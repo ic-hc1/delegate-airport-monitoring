@@ -1,0 +1,664 @@
+<title>Delegate Arrivals Manila</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column; sticky board header; summary tiles -> hourly chart -> flight board -> hotel dispatch -> needs checking. Airport flight-information-display vernacular, restrained. */
+:root {
+  --bg: #f1f4f7; --surface: #ffffff; --surface-2: #e7ecf1; --fg: #131c26; --fg-2: #46525f; --muted: #76828e;
+  --line: #d6dde4; --line-strong: #b9c3cd;
+  --accent: #0d6b8d; --accent-ink: #0a5571; --accent-soft: #d6e9f0; --accent-fg: #ffffff;
+  --now: #fff4d6; --now-line: #e7b53a;
+  --good: #0ca30c; --good-soft: #dcf3dc; --warn: #fab219; --warn-soft: #fff0c7; --crit: #d03b3b; --crit-soft: #f8dcdc; --serious: #ec835a;
+  --series-1: #2a78d6; --series-1-soft: #b7d3f6;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 6px; --shadow: 0 1px 2px rgba(19,28,38,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1418; --surface: #171d23; --surface-2: #202830; --fg: #e8ecef; --fg-2: #b4bdc6; --muted: #8694a0;
+    --line: #2b353f; --line-strong: #3b4752;
+    --accent: #4fb6d4; --accent-ink: #7fcbe2; --accent-soft: #163441; --accent-fg: #0b1317;
+    --now: #2d2710; --now-line: #d9a83a;
+    --good: #0ca30c; --good-soft: #15351a; --warn: #fab219; --warn-soft: #3b2f0c; --crit: #e05a5a; --crit-soft: #3d1b1b; --serious: #ec835a;
+    --series-1: #3987e5; --series-1-soft: #1c3a63;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1418; --surface: #171d23; --surface-2: #202830; --fg: #e8ecef; --fg-2: #b4bdc6; --muted: #8694a0;
+  --line: #2b353f; --line-strong: #3b4752;
+  --accent: #4fb6d4; --accent-ink: #7fcbe2; --accent-soft: #163441; --accent-fg: #0b1317;
+  --now: #2d2710; --now-line: #d9a83a;
+  --good: #0ca30c; --good-soft: #15351a; --warn: #fab219; --warn-soft: #3b2f0c; --crit: #e05a5a; --crit-soft: #3d1b1b; --serious: #ec835a;
+  --series-1: #3987e5; --series-1-soft: #1c3a63;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 14px; line-height: 1.45; margin: 0; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--fg); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: .01em; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- top bar ---- */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 9; background: var(--fg); color: var(--bg);
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar-in { max-width: 1240px; margin: 0 auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.topbar h1 { font-size: 24px; line-height: 1; text-transform: uppercase; letter-spacing: .04em; }
+.topbar h1 small { font-weight: 500; opacity: .7; letter-spacing: .02em; font-size: 16px; margin-left: 8px; text-transform: none; }
+.clock { margin-left: auto; font-family: var(--display); font-size: 22px; letter-spacing: .04em; display: flex; align-items: baseline; gap: 8px; }
+.clock .lbl { font-family: var(--body); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
+.sync { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.12); }
+.sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sync[data-state="live"]::before { background: var(--good); }
+.sync[data-state="ro"]::before { background: var(--warn); }
+.sync[data-state="off"]::before { background: var(--crit); }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 16px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+
+/* ---- controls ---- */
+.controls { display: grid; gap: 10px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-weight: 500; display: inline-flex; gap: 8px; align-items: baseline; line-height: 1.2; }
+.chip .cnt { font-size: 12px; color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.chip[aria-pressed="true"] .cnt { color: inherit; opacity: .8; }
+.chip.today { box-shadow: inset 0 0 0 2px var(--now-line); }
+.row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 6px 12px; font-weight: 500; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+select, input[type="search"], input[type="text"] { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius); padding: 6px 10px; min-width: 0; }
+input[type="search"] { flex: 1 1 220px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+
+/* ---- tiles ---- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow); min-width: 0; }
+.tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.tile .v { font-family: var(--display); font-size: 32px; line-height: 1.05; font-weight: 600; margin-top: 2px; }
+.tile .s { font-size: 12px; color: var(--fg-2); }
+.tile.good .v { color: var(--good); }
+.tile.pend .v { color: var(--accent-ink); }
+
+/* ---- panels ---- */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.panel-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.panel-h h2 { font-size: 20px; text-transform: uppercase; letter-spacing: .04em; }
+.panel-h .sub { color: var(--muted); font-size: 13px; }
+.panel-h .right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--fg-2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+/* ---- chart ---- */
+.chart { padding: 10px 14px 6px; position: relative; overflow-x: auto; }
+.chart svg { width: 100%; min-width: 640px; height: auto; display: block; }
+.chart .tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 4px; white-space: nowrap; transform: translate(-50%, -110%); }
+.chart .tip[hidden] { display: none; }
+
+/* ---- flight board ---- */
+.board { display: grid; }
+.frow { border-top: 1px solid var(--line); min-width: 0; }
+.frow:first-child { border-top: 0; }
+.fhead { display: grid; grid-template-columns: 64px 110px minmax(140px, 1.2fr) 70px minmax(160px, 2fr) minmax(130px, 1fr) 150px 36px; gap: 10px; align-items: center; padding: 10px 14px; position: relative; }
+.fhead::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; }
+.frow.now .fhead { background: var(--now); }
+.frow.now .fhead::before { background: var(--now-line); }
+.frow.landed .fhead::before { background: var(--good); }
+.frow.delayed .fhead::before { background: var(--warn); }
+.frow.done .fhead { opacity: .62; }
+.frow.done .fhead::before { background: var(--line-strong); }
+.ftime { font-family: var(--display); font-size: 24px; font-weight: 600; line-height: 1; }
+.ftime small { display: block; font-family: var(--body); font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.fno { font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: .03em; line-height: 1; }
+.fno small { display: block; font-family: var(--body); font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0; margin-top: 2px; }
+.fair { font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
+.fair .ap { display: inline-block; font-weight: 600; color: var(--fg); margin-right: 6px; }
+.fpax { font-family: var(--display); font-size: 24px; font-weight: 600; line-height: 1; }
+.fpax small { display: block; font-family: var(--body); font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.hchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.hc { font-size: 12px; background: var(--surface-2); border-radius: 4px; padding: 2px 7px; white-space: nowrap; }
+.hc b { font-weight: 600; }
+.flags { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.flag { border-radius: 4px; padding: 2px 7px; white-space: nowrap; border: 1px solid var(--line); }
+.flag.minor { background: var(--warn-soft); border-color: transparent; }
+.flag.sfts { background: var(--accent-soft); border-color: transparent; }
+.flag.lang { background: var(--surface-2); border-color: transparent; }
+.flag.times { background: var(--crit-soft); border-color: transparent; }
+.fstat { display: grid; gap: 4px; }
+.fstat select { padding: 4px 6px; font-size: 13px; font-weight: 500; width: 100%; }
+.frow.landed .fstat select { border-color: var(--good); }
+.frow.delayed .fstat select { border-color: var(--warn); }
+.prog { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.prog i { display: block; height: 100%; background: var(--good); width: 0; }
+.prog-l { font-size: 11px; color: var(--muted); }
+.fx { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; width: 32px; height: 32px; display: grid; place-items: center; font-size: 16px; }
+.frow[aria-expanded="true"] .fx { background: var(--surface-2); }
+
+.fbody { min-width: 0; padding: 6px 14px 14px; background: var(--bg); border-top: 1px dashed var(--line); }
+.fbody-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 6px 0 10px; }
+.fbody-tools input[type="text"] { flex: 1 1 220px; }
+.btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; padding: 5px 10px; font-weight: 500; font-size: 13px; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.grp { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-top: 8px; overflow: hidden; }
+.grp-h { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; padding: 6px 10px; background: var(--surface-2); font-size: 12px; color: var(--fg-2); }
+.grp-h b { color: var(--fg); font-weight: 600; }
+.grp-h .gcode { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: .04em; }
+.tbl-wrap { overflow-x: auto; min-width: 0; max-width: 100%; }
+table.del { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+table.del th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.del td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.del tr:last-child td { border-bottom: 0; }
+table.del tr.met td { background: var(--good-soft); }
+table.del td.chk { width: 36px; text-align: center; }
+table.del input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--good); }
+table.del .name { font-weight: 600; }
+table.del .name .star { color: var(--warn); margin-left: 4px; }
+table.del input.note { width: 100%; min-width: 140px; border: 1px solid transparent; background: transparent; padding: 3px 6px; border-radius: 4px; }
+table.del input.note:hover, table.del input.note:focus { border-color: var(--line-strong); background: var(--surface); }
+.badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: var(--surface-2); margin-left: 4px; }
+.badge.minor { background: var(--warn-soft); }
+.badge.sfts { background: var(--accent-soft); }
+.by { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* ---- hotel dispatch + needs checking ---- */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+table.plain { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.plain th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+table.plain td { padding: 7px 14px; border-bottom: 1px solid var(--line); }
+table.plain tr:last-child td { border-bottom: 0; }
+table.plain td.r, table.plain th.r { text-align: right; }
+.bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 60px; }
+.bar i { display: block; height: 100%; background: var(--good); }
+.nc { padding: 0; }
+.nc ul { list-style: none; margin: 0; padding: 0; }
+.nc li { padding: 8px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr; gap: 10px; font-size: 13px; }
+.nc li:last-child { border-bottom: 0; }
+.nc .why { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; color: var(--crit); padding-top: 2px; white-space: nowrap; }
+.nc .why.odd { color: var(--serious); }
+.nc .d { color: var(--fg-2); }
+.empty { padding: 24px 14px; color: var(--muted); text-align: center; }
+.notice { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 12px; font-size: 13px; }
+.notice[hidden] { display: none; }
+.foot { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.search-res { padding: 0; }
+.search-res table.del { min-width: 820px; }
+
+@media (max-width: 900px) {
+  .fhead { grid-template-columns: 56px 1fr 1fr 36px; grid-auto-rows: auto; row-gap: 8px; }
+  .fhead .fair { grid-column: 2 / 4; }
+  .fhead .hchips, .fhead .flags { grid-column: 1 / 5; }
+  .fhead .fstat { grid-column: 1 / 4; }
+  .fhead .fx { grid-row: 1; grid-column: 4; }
+  .two { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) { .prog i, .bar i { transition: width .3s ease; } }
+</style>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <h1>Delegate Arrivals <small>Manila airport team</small></h1>
+    <span class="sync" id="sync" data-state="off">Connecting…</span>
+    <div class="clock"><span class="lbl">Manila</span><span id="clock" class="num">--:--</span><span class="lbl" id="clockDate"></span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="notice" id="notice" hidden></div>
+
+  <section class="controls" aria-label="Filters">
+    <div class="chips" id="dateChips" role="group" aria-label="Arrival date"></div>
+    <div class="row2">
+      <div class="seg" id="airportSeg" role="group" aria-label="Airport">
+        <button type="button" data-v="ALL" aria-pressed="true">All airports</button>
+        <button type="button" data-v="MNL" aria-pressed="false">MNL · NAIA</button>
+        <button type="button" data-v="CRK" aria-pressed="false">CRK · Clark</button>
+      </div>
+      <select id="hotelSel" aria-label="Hotel"><option value="ALL">All hotels</option></select>
+      <label class="toggle"><input type="checkbox" id="nextOnly"> Next 3 hours only</label>
+      <label class="toggle"><input type="checkbox" id="hideDone"> Hide completed flights</label>
+      <input type="search" id="q" placeholder="Search name, delegate code, group code or flight…" aria-label="Search delegates">
+    </div>
+  </section>
+
+  <section class="tiles" id="tiles" aria-label="Summary"></section>
+
+  <section class="panel search-res" id="searchPanel" hidden>
+    <div class="panel-h"><h2>Search results</h2><span class="sub" id="searchSub"></span></div>
+    <div class="tbl-wrap" id="searchBody"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h"><h2>Arrivals by hour</h2><span class="sub" id="chartSub"></span>
+      <div class="right legend"><span><i style="background:var(--series-1-soft)"></i>Expected</span><span><i style="background:var(--series-1)"></i>Met at airport</span></div></div>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h"><h2>Flight board</h2><span class="sub" id="boardSub"></span>
+      <div class="right"><button type="button" class="btn" id="collapseAll">Collapse all</button></div></div>
+    <div class="board" id="board"></div>
+  </section>
+
+  <div class="two">
+    <section class="panel">
+      <div class="panel-h"><h2>Hotel dispatch</h2><span class="sub" id="hotelSub"></span></div>
+      <div class="tbl-wrap"><table class="plain" id="hotelTbl"></table></div>
+    </section>
+    <section class="panel nc">
+      <div class="panel-h"><h2>Needs checking</h2><span class="sub" id="ncSub"></span></div>
+      <ul id="ncList"></ul>
+    </section>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<script>
+const DATA = __DATA__;
+const HOTELS = DATA.hotels;
+const ROWS = DATA.rows;
+const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const STATUS = { scheduled: "Scheduled", landed: "Landed", delayed: "Delayed", done: "Completed" };
+const CORE_DAYS = ["2026-10-22","2026-10-23","2026-10-24","2026-10-25","2026-10-26","2026-10-27","2026-10-28"];
+
+/* ---------- Manila time ---------- */
+const fmtParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+function manilaNow() {
+  const p = {}; for (const x of fmtParts.formatToParts(new Date())) p[x.type] = x.value;
+  const hh = p.hour === "24" ? "00" : p.hour;
+  return { date: `${p.year}-${p.month}-${p.day}`, hm: `${hh}:${p.minute}`, min: +hh * 60 + +p.minute };
+}
+function toMin(t) { if (!t) return null; const [h, m] = t.split(":").map(Number); return h * 60 + (m || 0); }
+function fmtDate(d) { if (!d) return "No date"; const [y, m, dd] = d.split("-").map(Number); const dt = new Date(Date.UTC(y, m - 1, dd)); return `${DAY_NAMES[dt.getUTCDay()]} ${MONTHS[m - 1]} ${dd}`; }
+function fmtDateLong(d) { if (!d) return "No date"; const [y, m, dd] = d.split("-").map(Number); const dt = new Date(Date.UTC(y, m - 1, dd)); return `${DAY_NAMES[dt.getUTCDay()]}, ${dd} ${MONTHS[m - 1]} ${y}`; }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function hShort(h) { return HOTELS[h] ? HOTELS[h].short : h; }
+
+/* ---------- data buckets ---------- */
+const now0 = manilaNow();
+const clean = ROWS.filter(r => r.q.length === 0);
+const flagged = ROWS.filter(r => r.q.length > 0);
+const byDate = new Map();
+for (const r of clean) { if (!byDate.has(r.d)) byDate.set(r.d, []); byDate.get(r.d).push(r); }
+const allDates = [...byDate.keys()].sort();
+const earlyDates = allDates.filter(d => d < CORE_DAYS[0]);
+const lateDates = allDates.filter(d => d > CORE_DAYS[CORE_DAYS.length - 1]);
+
+/* ---------- state ---------- */
+const state = {
+  date: CORE_DAYS.includes(now0.date) ? now0.date : "2026-10-25",
+  airport: "ALL", hotel: "ALL", q: "", nextOnly: false, hideDone: false,
+  expanded: new Set(),
+  flightDocs: new Map(),   // fid -> {status, note, by, at}
+  delDocs: new Map(),      // code -> {met, note, by, at}
+  db: null, user: null, uid: null, canWrite: null, readOnly: false,
+  unsubDel: null, delSubDate: null,
+  profiles: {},
+};
+try { const s = JSON.parse(localStorage.getItem("arrivals-ui") || "{}"); if (s.hotel) state.hotel = s.hotel; if (s.airport) state.airport = s.airport; } catch (e) {}
+function saveUi() { try { localStorage.setItem("arrivals-ui", JSON.stringify({ hotel: state.hotel, airport: state.airport })); } catch (e) {} }
+
+function dateKeyRows(key) {
+  if (key === "EARLY") return earlyDates.flatMap(d => byDate.get(d));
+  if (key === "LATE") return lateDates.flatMap(d => byDate.get(d));
+  return byDate.get(key) || [];
+}
+function filterRows(rows) {
+  return rows.filter(r => (state.airport === "ALL" || r.ap === state.airport) && (state.hotel === "ALL" || r.h === state.hotel));
+}
+function flightsOf(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    let f = m.get(r.fid);
+    if (!f) { f = { fid: r.fid, fl: r.fl, date: r.d, rows: [], times: new Map(), airlines: new Map(), airports: new Set(), hotels: new Map(), langs: new Map(), minors: 0, sfts: 0, contacts: 0 }; m.set(r.fid, f); }
+    f.rows.push(r);
+    f.times.set(r.t, (f.times.get(r.t) || 0) + 1);
+    if (r.al) f.airlines.set(r.al, (f.airlines.get(r.al) || 0) + 1);
+    if (r.ap) f.airports.add(r.ap);
+    f.hotels.set(r.h, (f.hotels.get(r.h) || 0) + 1);
+    if (r.l) f.langs.set(r.l, (f.langs.get(r.l) || 0) + 1);
+    if (r.m) f.minors++; if (r.f) f.sfts++; if (r.gc) f.contacts++;
+  }
+  for (const f of m.values()) {
+    f.time = [...f.times.entries()].sort((a, b) => b[1] - a[1] || (a[0] || "").localeCompare(b[0] || ""))[0][0];
+    f.airline = [...f.airlines.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0])[0] || "Airline not listed";
+    f.doc = state.flightDocs.get(f.fid) || {};
+    f.status = f.doc.status || "scheduled";
+    f.met = f.rows.filter(r => state.delDocs.get(r.c)?.met).length;
+  }
+  return [...m.values()].sort((a, b) => (toMin(a.time) ?? 9e9) - (toMin(b.time) ?? 9e9) || a.fl.localeCompare(b.fl));
+}
+function isNowWindow(f, now) {
+  if (f.date !== now.date) return false; const t = toMin(f.time); if (t == null) return false;
+  return t >= now.min - 60 && t <= now.min + 180;
+}
+
+/* ---------- render: controls ---------- */
+function renderChips() {
+  const el = document.getElementById("dateChips"); el.innerHTML = "";
+  const items = [];
+  if (earlyDates.length) items.push({ k: "EARLY", label: "Earlier", n: dateKeyRows("EARLY").length });
+  for (const d of CORE_DAYS) items.push({ k: d, label: fmtDate(d), n: (byDate.get(d) || []).length });
+  if (lateDates.length) items.push({ k: "LATE", label: "Later", n: dateKeyRows("LATE").length });
+  for (const it of items) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (it.k === now0.date ? " today" : "");
+    b.setAttribute("aria-pressed", String(state.date === it.k)); b.dataset.k = it.k;
+    b.innerHTML = `${esc(it.label)}<span class="cnt num">${it.n}</span>`;
+    b.addEventListener("click", () => { state.date = it.k; state.expanded.clear(); renderChips(); subscribeDelegates(); renderAll(); });
+    el.appendChild(b);
+  }
+}
+document.getElementById("airportSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return; state.airport = b.dataset.v;
+  for (const x of e.currentTarget.querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  saveUi(); renderAll();
+});
+(function initHotelSel() {
+  const s = document.getElementById("hotelSel");
+  for (const k of Object.keys(HOTELS).sort((a, b) => HOTELS[a].name.localeCompare(HOTELS[b].name))) { const o = document.createElement("option"); o.value = k; o.textContent = HOTELS[k].name; s.appendChild(o); }
+  s.value = state.hotel; s.addEventListener("change", () => { state.hotel = s.value; saveUi(); renderAll(); });
+  for (const b of document.querySelectorAll("#airportSeg button")) b.setAttribute("aria-pressed", String(b.dataset.v === state.airport));
+})();
+document.getElementById("nextOnly").addEventListener("change", e => { state.nextOnly = e.target.checked; renderAll(); });
+document.getElementById("hideDone").addEventListener("change", e => { state.hideDone = e.target.checked; renderAll(); });
+let qTimer; document.getElementById("q").addEventListener("input", e => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); renderSearch(); }, 150); });
+document.getElementById("collapseAll").addEventListener("click", () => { state.expanded.clear(); renderBoard(); });
+
+/* ---------- render: tiles ---------- */
+function renderTiles(rows, flights) {
+  const met = rows.filter(r => state.delDocs.get(r.c)?.met).length;
+  const landed = flights.filter(f => f.status === "landed" || f.status === "done").length;
+  const minors = rows.filter(r => r.m).length, sfts = rows.filter(r => r.f).length, contacts = rows.filter(r => r.gc).length;
+  const groups = new Set(rows.map(r => r.g)).size;
+  const tiles = [
+    ["Expected", rows.length, "delegates in view", ""],
+    ["Met at airport", met, rows.length ? Math.round(met / rows.length * 100) + "% of expected" : "", "good"],
+    ["Still to meet", rows.length - met, "", "pend"],
+    ["Flights", flights.length, `${landed} landed or completed`, ""],
+    ["Groups", groups, `${contacts} group contacts`, ""],
+    ["Minors", minors, "under 18, travelling with group", ""],
+    ["SFTS", sfts, "special rooming assigned", ""],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`).join("");
+}
+
+/* ---------- render: chart ---------- */
+function renderChart(rows, now) {
+  const exp = new Array(24).fill(0), met = new Array(24).fill(0);
+  for (const r of rows) { const h = r.t ? +r.t.slice(0, 2) % 24 : null; if (h == null) continue; exp[h]++; if (state.delDocs.get(r.c)?.met) met[h]++; }
+  const max = Math.max(1, ...exp);
+  const W = 1000, H = 220, padL = 36, padR = 8, padT = 12, padB = 26, cw = (W - padL - padR) / 24, bw = cw - 4;
+  const y = v => padT + (H - padT - padB) * (1 - v / max);
+  const step = max > 40 ? 20 : max > 16 ? 10 : max > 8 ? 4 : 2;
+  const ticks = []; for (let v = 0; v <= max; v += step) ticks.push(v);
+  let g = "";
+  for (const v of ticks) g += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${padL - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${v}</text>`;
+  const curH = state.date === now.date ? Math.floor(now.min / 60) : -1;
+  for (let h = 0; h < 24; h++) {
+    const x = padL + h * cw + 2;
+    if (h === curH) g += `<rect x="${padL + h * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="var(--now)"/>`;
+    if (exp[h]) {
+      g += `<rect class="bar-e" data-h="${h}" x="${x}" y="${y(exp[h])}" width="${bw}" height="${y(0) - y(exp[h])}" rx="3" fill="var(--series-1-soft)"/>`;
+      if (met[h]) g += `<rect data-h="${h}" x="${x}" y="${y(met[h])}" width="${bw}" height="${y(0) - y(met[h])}" rx="3" fill="var(--series-1)"/>`;
+      g += `<rect data-h="${h}" x="${padL + h * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="transparent"/>`;
+    }
+    if (h % 3 === 0) g += `<text x="${padL + h * cw + cw / 2}" y="${H - 8}" font-size="11" text-anchor="middle" fill="var(--muted)">${String(h).padStart(2, "0")}:00</text>`;
+  }
+  g += `<line x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line-strong)"/>`;
+  const el = document.getElementById("chart");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Expected arrivals per hour">${g}</svg><div class="tip" id="tip" hidden></div>`;
+  const tip = document.getElementById("tip"), svg = el.querySelector("svg");
+  svg.addEventListener("mousemove", e => {
+    const t = e.target.closest("[data-h]"); if (!t) { tip.hidden = true; return; }
+    const h = +t.dataset.h; const r = el.getBoundingClientRect(), s = svg.getBoundingClientRect();
+    const sx = s.width / W; tip.hidden = false;
+    tip.textContent = `${String(h).padStart(2, "0")}:00–${String(h).padStart(2, "0")}:59 · ${exp[h]} expected · ${met[h]} met`;
+    tip.style.left = (s.left - r.left + (padL + h * cw + cw / 2) * sx) + "px"; tip.style.top = (s.top - r.top + y(exp[h]) * sx) + "px";
+  });
+  svg.addEventListener("mouseleave", () => { tip.hidden = true; });
+  document.getElementById("chartSub").textContent = `${rows.length} delegates · ${state.date === now.date ? "current hour shaded" : fmtDateLong(state.date === "EARLY" ? null : state.date === "LATE" ? null : state.date)}`.replace(" · No date", "");
+}
+
+/* ---------- render: flight board ---------- */
+function flightHtml(f, now) {
+  const cls = ["frow", f.status, isNowWindow(f, now) ? "now" : ""].join(" ");
+  const hotels = [...f.hotels.entries()].sort((a, b) => b[1] - a[1]).map(([h, n]) => `<span class="hc">${esc(hShort(h))} <b class="num">${n}</b></span>`).join("");
+  const langs = [...f.langs.entries()].filter(([l]) => !/^English$/.test(l)).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, n]) => `<span class="flag lang">${esc(l)} ×${n}</span>`).join("");
+  const flags = [f.minors ? `<span class="flag minor">${f.minors} minor${f.minors > 1 ? "s" : ""}</span>` : "", f.sfts ? `<span class="flag sfts">${f.sfts} SFTS</span>` : "", f.times.size > 1 ? `<span class="flag times" title="${esc([...f.times.keys()].join(", "))}">${f.times.size} times listed</span>` : "", langs].join("");
+  const pct = f.rows.length ? Math.round(f.met / f.rows.length * 100) : 0;
+  const dis = state.readOnly || !state.db ? "disabled" : "";
+  const dateNote = state.date === "EARLY" || state.date === "LATE" ? `<small>${esc(fmtDate(f.date))}</small>` : `<small>${f.rows.length === 1 ? "" : f.times.size > 1 ? "most listed" : "listed"}</small>`;
+  const ap = [...f.airports].join("/") || "—";
+  return `<div class="${cls}" data-fid="${esc(f.fid)}" aria-expanded="${state.expanded.has(f.fid)}">
+    <div class="fhead">
+      <div class="ftime num">${esc(f.time || "--:--")}${dateNote}</div>
+      <div class="fno">${esc(f.fl === "NOFLIGHT" ? "—" : f.fl)}<small>${f.fl === "NOFLIGHT" ? "no flight listed" : esc(f.rows[0].fr !== f.fl ? "as listed: " + f.rows[0].fr : "flight")}</small></div>
+      <div class="fair"><span class="ap">${esc(ap)}</span>${esc(f.airline)}${f.airlines.size > 1 ? ` <span class="by">+${f.airlines.size - 1} more listed</span>` : ""}</div>
+      <div class="fpax num">${f.rows.length}<small>pax</small></div>
+      <div class="hchips">${hotels}</div>
+      <div class="flags">${flags}</div>
+      <div class="fstat">
+        <select aria-label="Flight status" data-act="status" ${dis}>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${f.status === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <div class="prog"><i style="width:${pct}%"></i></div>
+        <div class="prog-l num">${f.met}/${f.rows.length} met${f.doc.by ? ` · <span class="by" data-uid="${esc(f.doc.by)}">updated</span>` : ""}</div>
+      </div>
+      <button type="button" class="fx" data-act="toggle" aria-label="${state.expanded.has(f.fid) ? "Collapse" : "Expand"} delegate list">${state.expanded.has(f.fid) ? "–" : "+"}</button>
+    </div>
+    ${state.expanded.has(f.fid) ? flightBody(f) : ""}
+  </div>`;
+}
+function delegateRows(rows, opts = {}) {
+  const dis = state.readOnly || !state.db ? "disabled" : "";
+  return rows.map(r => {
+    const d = state.delDocs.get(r.c) || {};
+    return `<tr class="${d.met ? "met" : ""}" data-code="${esc(r.c)}">
+      <td class="chk"><input type="checkbox" data-act="met" aria-label="Met ${esc(r.n)}" ${d.met ? "checked" : ""} ${dis}></td>
+      <td class="name">${esc(r.n)}${r.gc ? '<span class="star" title="Group contact">★</span>' : ""}${r.m ? `<span class="badge minor">minor · ${r.a}</span>` : ""}${r.f ? `<span class="badge sfts">${esc(r.r || "SFTS")}</span>` : ""}</td>
+      ${opts.flight ? `<td class="num">${esc(fmtDate(r.d))} ${esc(r.t || "")}<br><span class="by">${esc(r.fl === "NOFLIGHT" || !r.fl ? "no flight" : r.fl)} · ${esc(r.ap || "")}</span></td>` : ""}
+      <td>${esc(hShort(r.h))}</td>
+      <td>${esc(r.b || "")}</td>
+      <td>${esc(r.l || "")}</td>
+      <td class="num">${r.t && opts.showTime ? esc(r.t) : ""}${opts.showTime ? "" : `<span class="by">${esc(r.g)}</span>`}</td>
+      <td><input type="text" class="note" data-act="note" placeholder="note…" value="${esc(d.note || "")}" aria-label="Note for ${esc(r.n)}" ${dis}></td>
+      <td class="by">${d.by ? `<span data-uid="${esc(d.by)}">…</span>` : ""}</td>
+    </tr>`;
+  }).join("");
+}
+function flightBody(f) {
+  const groups = new Map();
+  for (const r of f.rows) { if (!groups.has(r.g)) groups.set(r.g, []); groups.get(r.g).push(r); }
+  const gl = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || a[1][0].n.localeCompare(b[1][0].n));
+  const dis = state.readOnly || !state.db ? "disabled" : "";
+  const allMet = f.met === f.rows.length;
+  return `<div class="fbody">
+    <div class="fbody-tools">
+      <button type="button" class="btn primary" data-act="metall" ${dis || allMet ? "disabled" : ""}>Mark all ${f.rows.length} met</button>
+      <button type="button" class="btn" data-act="metnone" ${dis || f.met === 0 ? "disabled" : ""}>Clear met</button>
+      <input type="text" data-act="fnote" placeholder="Flight note (gate, delay, meeting point…)" value="${esc(f.doc.note || "")}" aria-label="Flight note" ${dis}>
+    </div>
+    ${gl.map(([g, rows]) => {
+      const c = rows.find(r => r.gc);
+      const hs = [...new Set(rows.map(r => hShort(r.h)))].join(", ");
+      return `<div class="grp"><div class="grp-h"><b>${rows.length === 1 ? "Solo" : "Group of " + rows.length}</b><span class="gcode">${esc(g)}</span>${c ? `<span>contact: <b>${esc(c.n)}</b></span>` : `<span>no contact flagged</span>`}<span>${esc(hs)}</span></div>
+      <div class="tbl-wrap"><table class="del"><thead><tr><th>Met</th><th>Name</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Time</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(rows, { showTime: true })}</tbody></table></div></div>`;
+    }).join("")}
+  </div>`;
+}
+function renderBoard() {
+  const now = manilaNow();
+  let flights = flightsOf(filterRows(dateKeyRows(state.date)));
+  const total = flights.length;
+  if (state.nextOnly) flights = flights.filter(f => isNowWindow(f, now));
+  if (state.hideDone) flights = flights.filter(f => f.status !== "done");
+  const el = document.getElementById("board");
+  el.innerHTML = flights.length ? flights.map(f => flightHtml(f, now)).join("") : `<div class="empty">${state.nextOnly && state.date !== now.date ? "“Next 3 hours” only applies to today’s date in Manila." : "No flights match these filters."}</div>`;
+  document.getElementById("boardSub").textContent = `${flights.length} of ${total} flights · ${state.date === "EARLY" ? "arrivals before " + fmtDate(CORE_DAYS[0]) : state.date === "LATE" ? "arrivals after " + fmtDate(CORE_DAYS[6]) : fmtDateLong(state.date)} · sorted by arrival time`;
+  resolveNames(el);
+}
+document.getElementById("board").addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const row = e.target.closest(".frow"); const fid = row?.dataset.fid;
+  if (b.dataset.act === "toggle") { state.expanded.has(fid) ? state.expanded.delete(fid) : state.expanded.add(fid); renderBoard(); }
+  if (b.dataset.act === "metall") markFlight(fid, true);
+  if (b.dataset.act === "metnone") markFlight(fid, false);
+});
+document.getElementById("board").addEventListener("change", e => {
+  const t = e.target; const act = t.dataset.act; if (!act) return;
+  const fid = t.closest(".frow")?.dataset.fid; const code = t.closest("tr")?.dataset.code;
+  if (act === "status") writeFlight(fid, { status: t.value });
+  if (act === "fnote") writeFlight(fid, { note: t.value.trim() });
+  if (act === "met") writeDelegate(code, { met: t.checked });
+  if (act === "note") writeDelegate(code, { note: t.value.trim() });
+});
+document.getElementById("searchBody").addEventListener("change", e => {
+  const t = e.target; const code = t.closest("tr")?.dataset.code; if (!code) return;
+  if (t.dataset.act === "met") writeDelegate(code, { met: t.checked });
+  if (t.dataset.act === "note") writeDelegate(code, { note: t.value.trim() });
+});
+
+/* ---------- render: hotel dispatch ---------- */
+function renderHotels(rows) {
+  const m = new Map();
+  for (const r of rows) { let h = m.get(r.h); if (!h) { h = { n: 0, met: 0, minors: 0, next: null }; m.set(r.h, h); } h.n++; if (state.delDocs.get(r.c)?.met) h.met++; if (r.m) h.minors++; }
+  const list = [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+  const tot = rows.length, totMet = rows.filter(r => state.delDocs.get(r.c)?.met).length;
+  document.getElementById("hotelTbl").innerHTML = `<thead><tr><th>Hotel</th><th class="r">Expected</th><th class="r">Met</th><th class="r">Remaining</th><th>Progress</th></tr></thead><tbody>` +
+    list.map(([h, v]) => `<tr><td>${esc(HOTELS[h].name)}</td><td class="r num">${v.n}</td><td class="r num">${v.met}</td><td class="r num">${v.n - v.met}</td><td><div class="bar"><i style="width:${v.n ? v.met / v.n * 100 : 0}%"></i></div></td></tr>`).join("") +
+    `<tr><td><b>Total</b></td><td class="r num"><b>${tot}</b></td><td class="r num"><b>${totMet}</b></td><td class="r num"><b>${tot - totMet}</b></td><td></td></tr></tbody>`;
+  document.getElementById("hotelSub").textContent = "delegates per hotel for the selected date and filters";
+}
+
+/* ---------- render: needs checking ---------- */
+function renderNeedsChecking() {
+  const rows = flagged.filter(r => state.hotel === "ALL" || r.h === state.hotel);
+  const why = { nodate: ["No arrival date", ""], noflight: ["No flight", ""], odddate: ["Date looks wrong", "odd"] };
+  document.getElementById("ncList").innerHTML = rows.length ? rows.map(r => {
+    const w = why[r.q[0]];
+    const detail = [r.d ? fmtDate(r.d) + (r.d.slice(0, 4) !== "2026" || !/^2026-10/.test(r.d) ? " (" + r.d + ")" : "") : "no date", r.t, r.fr ? "flight " + r.fr : "no flight", r.ap, "check-in " + fmtDate(r.ci), r.gp ? r.gp + " gap nights" : ""].filter(Boolean).join(" · ");
+    return `<li><span class="why ${w[1]}">${w[0]}</span><span><b>${esc(r.n)}</b> · ${esc(hShort(r.h))} · ${esc(r.b || "")}<br><span class="d">${esc(detail)}</span></span></li>`;
+  }).join("") : `<li class="empty">Nothing to check for this hotel.</li>`;
+  document.getElementById("ncSub").textContent = `${rows.length} rows from the master lists that the airport team cannot schedule as-is`;
+}
+
+/* ---------- render: search ---------- */
+function renderSearch() {
+  const panel = document.getElementById("searchPanel");
+  const q = state.q.toLowerCase();
+  if (q.length < 2) { panel.hidden = true; return; }
+  const hits = ROWS.filter(r => (r.n && r.n.toLowerCase().includes(q)) || (r.c && r.c.toLowerCase().includes(q)) || (r.g && r.g.toLowerCase().includes(q)) || (r.fl && r.fl.toLowerCase().includes(q.replace(/\s+/g, "")))).slice(0, 60);
+  panel.hidden = false;
+  document.getElementById("searchSub").textContent = hits.length === 60 ? "first 60 matches, all dates" : `${hits.length} match${hits.length === 1 ? "" : "es"}, all dates`;
+  document.getElementById("searchBody").innerHTML = hits.length ? `<table class="del"><thead><tr><th>Met</th><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`;
+  fetchDelegateDocs(hits.filter(r => !state.delDocs.has(r.c)).map(r => r.c));
+  resolveNames(panel);
+}
+
+function renderAll() {
+  const now = manilaNow();
+  const rows = filterRows(dateKeyRows(state.date));
+  const flights = flightsOf(rows);
+  renderTiles(rows, flights); renderChart(rows, now); renderBoard(); renderHotels(rows); renderNeedsChecking(); renderSearch();
+}
+
+/* ---------- clock ---------- */
+function tickClock() {
+  const n = manilaNow(); document.getElementById("clock").textContent = n.hm; document.getElementById("clockDate").textContent = fmtDate(n.date);
+}
+tickClock(); setInterval(() => { const before = manilaNow().min; tickClock(); if (before % 5 === 0) renderBoard(); }, 30000);
+
+/* ---------- shared tracking (db) ---------- */
+const syncEl = document.getElementById("sync"), noticeEl = document.getElementById("notice");
+function setSync(stateName, text) { syncEl.dataset.state = stateName; syncEl.textContent = text; }
+function setReadOnly(msg) { state.readOnly = true; setSync("ro", "View only"); noticeEl.hidden = false; noticeEl.textContent = msg; renderAll(); }
+
+async function resolveNames(root) {
+  if (!state.user) return;
+  const els = [...root.querySelectorAll("[data-uid]")]; if (!els.length) return;
+  const ids = [...new Set(els.map(e => e.dataset.uid))];
+  const ps = await state.user.profiles(ids);
+  for (const e of els) { const p = ps[e.dataset.uid]; e.textContent = (e.textContent === "updated" ? "by " : "") + ((p && p.name) || "a volunteer"); }
+}
+function stamp(extra) { return Object.assign(extra, { by: state.uid || "unknown", at: new Date().toISOString() }); }
+const pending = new Map();   // doc path -> promise chain, one write at a time per doc
+function queue(path, fn) { const prev = pending.get(path) || Promise.resolve(); const next = prev.then(fn, fn).catch(onWriteError); pending.set(path, next); return next; }
+function onWriteError(e) {
+  if (!e) return; if (e.code === "invalid_argument") setReadOnly("Your access to this page is view-only. Ask the owner to make you a Contributor to record arrivals.");
+  else if (e.code === "quota_exceeded") setReadOnly("The tracking store is full. Ask the page owner to clear old records.");
+  else { setSync("off", "Save failed, retrying"); setTimeout(() => state.db && setSync("live", "Live"), 4000); }
+  console.error(e);
+}
+function writeFlight(fid, patch) {
+  if (!state.db || !fid) return;
+  const cur = state.flightDocs.get(fid) || {}; const next = stamp(Object.assign({}, cur, patch));
+  if (cur.status === next.status && (cur.note || "") === (next.note || "")) return;
+  state.flightDocs.set(fid, next); renderBoard(); renderTiles(filterRows(dateKeyRows(state.date)), flightsOf(filterRows(dateKeyRows(state.date))));
+  queue("flights/" + fid, () => state.db.doc("flights/" + fid).set(next));
+}
+function delegateBody(code, patch) {
+  const r = ROWS.find(x => x.c === code); const cur = state.delDocs.get(code) || {};
+  return stamp(Object.assign({ met: false, note: "" }, cur, patch, { date: r?.d || "", fid: r?.fid || "", hotel: r?.h || "" }));
+}
+function writeDelegate(code, patch) {
+  if (!state.db || !code) return;
+  const cur = state.delDocs.get(code) || {}; const next = delegateBody(code, patch);
+  if (!!cur.met === !!next.met && (cur.note || "") === (next.note || "")) return;
+  state.delDocs.set(code, next); renderAll();
+  queue("delegates/" + code, () => state.db.doc("delegates/" + code).set(next));
+}
+async function markFlight(fid, met) {
+  if (!state.db) return;
+  const f = flightsOf(filterRows(dateKeyRows(state.date))).find(x => x.fid === fid); if (!f) return;
+  const todo = f.rows.filter(r => !!state.delDocs.get(r.c)?.met !== met);
+  for (const r of todo) state.delDocs.set(r.c, delegateBody(r.c, { met }));
+  renderAll();
+  let i = 0; const workers = Array.from({ length: 4 }, async () => { while (i < todo.length) { const r = todo[i++]; await queue("delegates/" + r.c, () => state.db.doc("delegates/" + r.c).set(state.delDocs.get(r.c))); } });
+  await Promise.all(workers);
+}
+async function fetchDelegateDocs(codes) {
+  if (!state.db || !codes.length) return;
+  const batch = codes.slice(0, 60); let changed = false;
+  await Promise.all(batch.map(async c => { try { const s = await state.db.doc("delegates/" + c).get(); if (s.exists) { state.delDocs.set(c, s.data()); changed = true; } } catch (e) {} }));
+  if (changed && state.q) renderSearch();
+}
+function subscribeDelegates() {
+  if (!state.db) return;
+  const dates = state.date === "EARLY" ? earlyDates : state.date === "LATE" ? lateDates : [state.date];
+  const key = dates.join(",");
+  if (state.delSubDate === key) return;
+  if (state.unsubDel) { state.unsubDel(); state.unsubDel = null; }
+  state.delSubDate = key;
+  const q = dates.length === 1 ? state.db.collection("delegates").where("date", "==", dates[0]) : state.db.collection("delegates").where("date", "in", dates.slice(0, 30));
+  state.unsubDel = q.onSnapshot(snap => {
+    for (const ch of snap.docChanges()) { if (ch.type === "removed") state.delDocs.delete(ch.doc.id); else state.delDocs.set(ch.doc.id, ch.doc.data()); }
+    renderAll();
+  }, e => { console.error(e); if (e.code === "revoked") setReadOnly("Live updates stopped: your access changed. Reload to try again."); });
+}
+async function boot() {
+  renderChips(); renderAll();
+  const use = n => (window.claude && typeof window.claude.use === "function") ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
+  const [db, user] = await Promise.all([use("db"), use("user")]);
+  state.user = user;
+  if (!db) { setSync("off", "Tracking offline"); noticeEl.hidden = false; noticeEl.textContent = "Shared tracking is unavailable in this view. Open the page signed in to claude.ai to record arrivals; the schedule below is still correct."; return; }
+  state.db = db; state.uid = user ? await user.id() : null;
+  const cw = user ? await user.can("data.write") : null; state.canWrite = cw;
+  if (cw === false) { setReadOnly("You can view the board but not record arrivals. Ask the page owner to make you a Contributor."); }
+  else setSync("live", "Live");
+  db.collection("flights").onSnapshot(snap => {
+    for (const ch of snap.docChanges()) { if (ch.type === "removed") state.flightDocs.delete(ch.doc.id); else state.flightDocs.set(ch.doc.id, ch.doc.data()); }
+    renderAll();
+  }, e => { console.error(e); if (e.code === "revoked") setReadOnly("Live updates stopped: your access changed. Reload to try again."); });
+  subscribeDelegates();
+  renderAll();
+}
+document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. “Met” checks, flight status and notes are shared live between everyone with Contributor access; the hotel lists themselves are not updated from here.`;
+boot();
+</script>
