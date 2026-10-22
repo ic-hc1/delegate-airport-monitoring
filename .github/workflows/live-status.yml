@@ -1,0 +1,52 @@
+name: Live flight status
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Poll now even if the last poll was recent (still respects the monthly budget)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-status
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch live arrivals
+        env:
+          LIVE_PROVIDER: ${{ vars.LIVE_PROVIDER || 'aerodatabox' }}
+          LIVE_MONTHLY_UNITS: ${{ vars.LIVE_MONTHLY_UNITS || '400' }}
+          LIVE_UNITS_PER_CALL: ${{ vars.LIVE_UNITS_PER_CALL || '2' }}
+          LIVE_AIRPORTS: ${{ vars.LIVE_AIRPORTS || 'MNL,CRK' }}
+          AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
+          AEROAPI_KEY: ${{ secrets.AEROAPI_KEY }}
+        run: |
+          if [ -z "$AERODATABOX_KEY" ] && [ -z "$AEROAPI_KEY" ]; then
+            echo "No provider key configured (secrets.AERODATABOX_KEY or secrets.AEROAPI_KEY); nothing to do."
+            exit 0
+          fi
+          python3 live/fetch_live.py ${{ inputs.force && '--force' || '' }}
+      - name: Commit live.json
+        run: |
+          if git diff --quiet -- docs/live.json && [ -z "$(git ls-files --others --exclude-standard docs/live.json)" ]; then
+            echo "live.json unchanged"; exit 0
+          fi
+          git config user.name "live-status bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/live.json
+          git commit -m "Live status $(date -u +%Y-%m-%dT%H:%MZ)"
+          git pull --rebase origin master
+          git push origin HEAD:master

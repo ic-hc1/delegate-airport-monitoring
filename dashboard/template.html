@@ -14,7 +14,7 @@
   --line: #d6dde4; --line-strong: #b9c3cd;
   --accent: #0d6b8d; --accent-ink: #0a5571; --accent-soft: #d6e9f0; --accent-fg: #ffffff;
   --now: #fff4d6; --now-line: #e7b53a;
-  --good: #0ca30c; --good-soft: #dcf3dc; --warn: #fab219; --warn-soft: #fff0c7; --crit: #d03b3b; --crit-soft: #f8dcdc; --serious: #ec835a;
+  --good: #0ca30c; --good-soft: #dcf3dc; --good-ink: #0a5a0a; --warn: #fab219; --warn-soft: #fff0c7; --warn-ink: #6b4a00; --crit: #d03b3b; --crit-soft: #f8dcdc; --crit-ink: #8f2626; --serious: #ec835a;
   --series-1: #2a78d6; --series-1-soft: #b7d3f6;
   --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
   --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -26,7 +26,7 @@
     --line: #2b353f; --line-strong: #3b4752;
     --accent: #4fb6d4; --accent-ink: #7fcbe2; --accent-soft: #163441; --accent-fg: #0b1317;
     --now: #2d2710; --now-line: #d9a83a;
-    --good: #0ca30c; --good-soft: #15351a; --warn: #fab219; --warn-soft: #3b2f0c; --crit: #e05a5a; --crit-soft: #3d1b1b; --serious: #ec835a;
+    --good: #0ca30c; --good-soft: #15351a; --good-ink: #6fdc6f; --warn: #fab219; --warn-soft: #3b2f0c; --warn-ink: #f5c75a; --crit: #e05a5a; --crit-soft: #3d1b1b; --crit-ink: #f29a9a; --serious: #ec835a;
     --series-1: #3987e5; --series-1-soft: #1c3a63;
     --shadow: 0 1px 2px rgba(0,0,0,.4);
     color-scheme: dark;
@@ -37,7 +37,7 @@
   --line: #2b353f; --line-strong: #3b4752;
   --accent: #4fb6d4; --accent-ink: #7fcbe2; --accent-soft: #163441; --accent-fg: #0b1317;
   --now: #2d2710; --now-line: #d9a83a;
-  --good: #0ca30c; --good-soft: #15351a; --warn: #fab219; --warn-soft: #3b2f0c; --crit: #e05a5a; --crit-soft: #3d1b1b; --serious: #ec835a;
+  --good: #0ca30c; --good-soft: #15351a; --good-ink: #6fdc6f; --warn: #fab219; --warn-soft: #3b2f0c; --warn-ink: #f5c75a; --crit: #e05a5a; --crit-soft: #3d1b1b; --crit-ink: #f29a9a; --serious: #ec835a;
   --series-1: #3987e5; --series-1-soft: #1c3a63;
   --shadow: 0 1px 2px rgba(0,0,0,.4);
   color-scheme: dark;
@@ -209,6 +209,21 @@ table.plain td.r, table.plain th.r { text-align: right; }
 }
 @media (prefers-reduced-motion: no-preference) { .prog i, .bar i { transition: width .3s ease; } }
 
+/* ---- live status badge ---- */
+.live { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; font-weight: 600; border-radius: 4px; padding: 2px 7px; background: var(--surface-2); color: var(--fg-2); max-width: 100%; }
+.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.live.landed { background: var(--good-soft); color: var(--good-ink); } .live.landed::before { background: var(--good); }
+.live.active { background: var(--accent-soft); color: var(--accent-ink); } .live.active::before { background: var(--accent); }
+.live.delayed { background: var(--warn-soft); color: var(--warn-ink); } .live.delayed::before { background: var(--warn); }
+.live.cancelled, .live.diverted { background: var(--crit-soft); color: var(--crit-ink); } .live.cancelled::before, .live.diverted::before { background: var(--crit); }
+.live.scheduled::before { background: var(--line-strong); }
+.live .det { font-weight: 500; color: var(--fg-2); }
+.live.stale { opacity: .6; }
+.liveat { font-size: 12px; opacity: .85; display: inline-flex; align-items: center; gap: 6px; }
+.liveat::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.liveat.stale::before { background: var(--warn); }
+.liveat[hidden] { display: none; }
+
 /* ---- unlock screen ---- */
 .lock { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: grid; place-items: center; padding: 16px; overflow: auto; }
 .lock[hidden] { display: none; }
@@ -231,6 +246,7 @@ table.plain td.r, table.plain th.r { text-align: right; }
     <h1>Delegate Arrivals <small>Manila airport team</small></h1>
     <span class="sync" id="sync" data-state="off">Locked</span>
     <div class="tools"><span class="who" id="who"></span><button type="button" class="tbtn" id="exportBtn" hidden>Export tracking</button><button type="button" class="tbtn" id="importBtn" hidden>Import</button><input type="file" id="importFile" accept="application/json" hidden><button type="button" class="tbtn" id="lockBtn">Lock</button></div>
+    <span class="liveat" id="liveAt" hidden></span>
     <div class="clock"><span class="lbl">Manila</span><span id="clock" class="num">--:--</span><span class="lbl" id="clockDate"></span></div>
   </div>
 </header>
@@ -371,7 +387,7 @@ const state = {
   expanded: new Set(),
   flightDocs: new Map(),   // fid -> {status, note, by, at}
   delDocs: new Map(),      // code -> {met, note, by, at}
-  readOnly: false, online: false,
+  readOnly: false, online: false, live: { flights: {} }, liveAt: null,
 };
 try { const s = JSON.parse(localStorage.getItem("arrivals-ui") || "{}"); if (s.hotel) state.hotel = s.hotel; if (s.airport) state.airport = s.airport; } catch (e) {}
 function saveUi() { try { localStorage.setItem("arrivals-ui", JSON.stringify({ hotel: state.hotel, airport: state.airport })); } catch (e) {} }
@@ -446,13 +462,14 @@ document.getElementById("collapseAll").addEventListener("click", () => { state.e
 function renderTiles(rows, flights) {
   const met = rows.filter(r => state.delDocs.get(r.c)?.met).length;
   const landed = flights.filter(f => f.status === "landed" || f.status === "done").length;
+  const liveLanded = flights.filter(f => (liveFor(f) || {}).st === "landed").length, liveAny = flights.some(f => liveFor(f));
   const minors = rows.filter(r => r.m).length, sfts = rows.filter(r => r.f).length, contacts = rows.filter(r => r.gc).length;
   const groups = new Set(rows.map(r => r.g)).size;
   const tiles = [
     ["Expected", rows.length, "delegates in view", ""],
     ["Met at airport", met, rows.length ? Math.round(met / rows.length * 100) + "% of expected" : "", "good"],
     ["Still to meet", rows.length - met, "", "pend"],
-    ["Flights", flights.length, `${landed} landed or completed`, ""],
+    ["Flights", flights.length, liveAny ? `${liveLanded} landed per live feed · ${landed} marked` : `${landed} landed or completed`, ""],
     ["Groups", groups, `${contacts} group contacts`, ""],
     ["Minors", minors, "under 18, travelling with group", ""],
     ["SFTS", sfts, "special rooming assigned", ""],
@@ -497,6 +514,40 @@ function renderChart(rows, now) {
   document.getElementById("chartSub").textContent = `${rows.length} delegates · ${state.date === now.date ? "current hour shaded" : fmtDateLong(state.date === "EARLY" ? null : state.date === "LATE" ? null : state.date)}`.replace(" · No date", "");
 }
 
+/* ---------- live status ---------- */
+function shiftDay(d, n) { const [y, m, dd] = d.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1, dd + n)); return x.toISOString().slice(0, 10); }
+function liveFor(f) {
+  const L = state.live.flights || {}; if (f.fl === "NOFLIGHT") return null;
+  return L[f.fid] || L[`${shiftDay(f.date, 1)}_${f.fl}`] || L[`${shiftDay(f.date, -1)}_${f.fl}`] || null;
+}
+function liveHtml(f) {
+  const l = liveFor(f); if (!l) return "";
+  const stale = l.at && (Date.now() - Date.parse(l.at)) > 90 * 60000;
+  const label = { landed: "Landed", active: "En route", delayed: "Delayed", cancelled: "Cancelled", diverted: "Diverted", scheduled: "On time" }[l.st] || l.raw || "Status";
+  const t = l.st === "landed" ? (l.act || l.est || l.sch) : (l.est || l.sch);
+  const parts = [];
+  if (t && l.st !== "cancelled") parts.push((l.st === "landed" ? "" : l.est && l.est !== l.sch ? "est " : "") + t);
+  if (l.sch && f.time && l.sch !== f.time) parts.push(`sched ${l.sch}`);
+  if (l.term) parts.push("T" + l.term); if (l.gate) parts.push("gate " + l.gate); if (l.belt) parts.push("belt " + l.belt);
+  if (l.from) parts.push("from " + l.from);
+  return `<div class="live ${esc(l.st)}${stale ? " stale" : ""}" title="${esc(l.raw || "")}${l.at ? " · updated " + new Date(l.at).toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : ""}">${label}<span class="det">${esc(parts.join(" · "))}</span></div>`;
+}
+async function loadLive() {
+  try {
+    const r = await fetch("live.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json(); state.live = j; state.liveAt = j.updatedAt || null;
+  } catch (e) { state.live = state.live || { flights: {} }; }
+  renderLiveAt(); renderBoard(); renderTiles(filterRows(dateKeyRows(state.date)), flightsOf(filterRows(dateKeyRows(state.date))));
+}
+function renderLiveAt() {
+  const el = document.getElementById("liveAt"); const n = Object.keys(state.live.flights || {}).length;
+  if (!state.liveAt || !n) { el.hidden = true; return; }
+  const age = Math.round((Date.now() - Date.parse(state.liveAt)) / 60000);
+  el.hidden = false; el.classList.toggle("stale", age > 90);
+  el.textContent = `Live flight data ${age < 1 ? "just now" : age + " min ago"}${state.live.budgetExhausted ? " · budget used up" : ""}`;
+}
+
 /* ---------- render: flight board ---------- */
 function flightHtml(f, now) {
   const cls = ["frow", f.status, isNowWindow(f, now) ? "now" : ""].join(" ");
@@ -511,7 +562,7 @@ function flightHtml(f, now) {
     <div class="fhead">
       <div class="ftime num">${esc(f.time || "--:--")}${dateNote}</div>
       <div class="fno">${esc(f.fl === "NOFLIGHT" ? "—" : f.fl)}<small>${f.fl === "NOFLIGHT" ? "no flight listed" : esc(f.rows[0].fr !== f.fl ? "as listed: " + f.rows[0].fr : "flight")}</small></div>
-      <div class="fair"><span class="ap">${esc(ap)}</span>${esc(f.airline)}${f.airlines.size > 1 ? ` <span class="by">+${f.airlines.size - 1} more listed</span>` : ""}</div>
+      <div class="fair"><span class="ap">${esc(ap)}</span>${esc(f.airline)}${f.airlines.size > 1 ? ` <span class="by">+${f.airlines.size - 1} more listed</span>` : ""}${liveHtml(f)}</div>
       <div class="fpax num">${f.rows.length}<small>pax</small></div>
       <div class="hchips">${hotels}</div>
       <div class="flags">${flags}</div>
@@ -766,10 +817,11 @@ document.getElementById("importFile").addEventListener("change", async e => {
 async function boot() {
   renderChips(); renderAll();
   document.getElementById("who").textContent = VOLUNTEER;
+  loadLive(); setInterval(loadLive, 120000);
   try { await sync.start(datesOfInterest()); }
   catch (e) { console.error(e); setSync("off", "Shared sync failed"); notice("Could not connect to the shared store (" + (e.code || e.message || "unknown error") + "). Updates you make now stay on this device only."); const fallback = localAdapter(); Object.assign(sync, fallback); await sync.start(); }
 }
-document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. The hotel lists themselves are not updated from here.`;
+document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. Live flight status, where shown, comes from a public flight-data feed polled a few times an hour and is a guide only; the status a volunteer sets by hand always stands. The hotel lists themselves are not updated from here.`;
 boot();
 }
 </script>

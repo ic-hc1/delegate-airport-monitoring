@@ -93,4 +93,15 @@ tpl = open(tpl_path, encoding="utf-8").read()
 html = tpl.replace("__ENC__", json.dumps(enc, separators=(",", ":")))
 os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 open(out_path, "w", encoding="utf-8").write(html)
+
+# Flight schedule for the live-status job: flight numbers, airports and head counts only.
+sched = collections.OrderedDict()
+for r in rows:
+    if r["q"] or not r["fl"] or not r["t"]: continue
+    k = (r["d"], r["fl"], r["ap"] or "MNL")
+    if k not in sched: sched[k] = {"d": r["d"], "fl": r["fl"], "ap": r["ap"] or "MNL", "t": r["t"], "n": 0, "fid": r["fid"]}
+    sched[k]["n"] += 1
+sched_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "schedule.json")
+json.dump({"generated": generated, "flights": list(sched.values())}, open(sched_path, "w"), separators=(",", ":"))
+print(f"schedule: {len(sched)} flight-days -> {sched_path}")
 print(f"rows={len(rows)} cancelled={cancelled} hotels={len(hotels)} generated={generated} plain={len(plain)}B page={len(html)}B")

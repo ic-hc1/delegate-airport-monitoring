@@ -1,0 +1,3 @@
+{"month":"2026-10","provider":"aerodatabox","budget":400,"usage":{"units":12},"updatedAt":"2026-10-22T18:18:46+00:00","calls":{},"notes":["test fixture"],"flights":{
+"2026-10-23_PR125":{"st":"landed","raw":"Landed","sch":"04:00","est":"03:52","act":"03:50","term":"2","gate":"","belt":"4","from":"NRT","al":"Philippine Airlines","cs":false,"at":"2026-10-22T18:18:46+00:00","ap":"MNL"},
+"2026-10-23_JL77":{"st":"delayed","raw":"Expected","sch":"05:35","est":"06:10","act":null,"term":"1","gate":"","belt":"","from":"HND","al":"Japan Airlines","cs":false,"at":"2026-10-22T18:18:46+00:00","ap":"MNL"}}}
