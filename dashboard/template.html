@@ -1,5 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:,">
 <title>Delegate Arrivals Manila</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
 <style>
 /* Layout: one column; sticky board header; summary tiles -> hourly chart -> flight board -> hotel dispatch -> needs checking. Airport flight-information-display vernacular, restrained. */
@@ -55,6 +61,8 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 .clock .lbl { font-family: var(--body); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
 .sync { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.12); }
 .sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sync[data-state="local"]::before { background: var(--accent); }
+.sync button { background: transparent; border: 0; color: inherit; text-decoration: underline; padding: 0; font-size: 12px; }
 .sync[data-state="live"]::before { background: var(--good); }
 .sync[data-state="ro"]::before { background: var(--warn); }
 .sync[data-state="off"]::before { background: var(--crit); }
@@ -200,17 +208,46 @@ table.plain td.r, table.plain th.r { text-align: right; }
   .two { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: no-preference) { .prog i, .bar i { transition: width .3s ease; } }
-</style>
 
+/* ---- unlock screen ---- */
+.lock { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: grid; place-items: center; padding: 16px; overflow: auto; }
+.lock[hidden] { display: none; }
+.lock-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 24px; width: min(100%, 420px); display: grid; gap: 12px; }
+.lock-card h2 { font-size: 26px; text-transform: uppercase; letter-spacing: .04em; }
+.lock-card p { margin: 0; color: var(--fg-2); font-size: 13px; }
+.lock-card label { display: grid; gap: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.lock-card input[type="password"], .lock-card input[type="text"] { font-size: 16px; padding: 9px 10px; }
+.lock-card .err { color: var(--crit); font-size: 13px; min-height: 1.2em; }
+.lock-card .btn.primary { padding: 10px 14px; font-size: 15px; }
+.lock-card .remember { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; color: var(--fg-2); display: flex; gap: 6px; align-items: center; }
+.topbar .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.topbar .tbtn { background: rgba(255,255,255,.12); border: 0; color: inherit; border-radius: 4px; padding: 4px 10px; font-size: 12px; }
+.topbar .who { font-size: 12px; opacity: .8; }
+</style>
+</head>
+<body>
 <header class="topbar">
   <div class="topbar-in">
     <h1>Delegate Arrivals <small>Manila airport team</small></h1>
-    <span class="sync" id="sync" data-state="off">Connecting…</span>
+    <span class="sync" id="sync" data-state="off">Locked</span>
+    <div class="tools"><span class="who" id="who"></span><button type="button" class="tbtn" id="exportBtn" hidden>Export tracking</button><button type="button" class="tbtn" id="importBtn" hidden>Import</button><input type="file" id="importFile" accept="application/json" hidden><button type="button" class="tbtn" id="lockBtn">Lock</button></div>
     <div class="clock"><span class="lbl">Manila</span><span id="clock" class="num">--:--</span><span class="lbl" id="clockDate"></span></div>
   </div>
 </header>
 
-<main class="wrap">
+<div class="lock" id="lock">
+  <form class="lock-card" id="lockForm">
+    <h2>Delegate Arrivals</h2>
+    <p>This board holds delegates’ names and flights. Enter the airport team passphrase to unlock it on this device.</p>
+    <label>Passphrase<input type="password" id="pass" autocomplete="current-password" required></label>
+    <label>Your name (shown next to your updates)<input type="text" id="volName" autocomplete="name" maxlength="40" required></label>
+    <label class="remember"><input type="checkbox" id="remember" checked> Stay unlocked on this device</label>
+    <div class="err" id="lockErr"></div>
+    <button type="submit" class="btn primary" id="unlockBtn">Unlock board</button>
+  </form>
+</div>
+
+<main class="wrap" id="main" hidden>
   <div class="notice" id="notice" hidden></div>
 
   <section class="controls" aria-label="Filters">
@@ -261,8 +298,42 @@ table.plain td.r, table.plain th.r { text-align: right; }
   <p class="foot" id="foot"></p>
 </main>
 
+<script src="config.js"></script>
 <script>
-const DATA = __DATA__;
+const ENC = __ENC__;
+let VOLUNTEER = "";
+const lockEl = document.getElementById("lock"), lockForm = document.getElementById("lockForm"), lockErr = document.getElementById("lockErr");
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function decrypt(pass) {
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: b64(ENC.salt), iterations: ENC.iter }, km, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(ENC.iv) }, key, b64(ENC.ct));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function tryUnlock(pass, name, remember) {
+  const btn = document.getElementById("unlockBtn"); btn.disabled = true; btn.textContent = "Unlocking…"; lockErr.textContent = "";
+  try {
+    const data = await decrypt(pass);
+    VOLUNTEER = name.trim();
+    try { localStorage.setItem("arrivals-name", VOLUNTEER); if (remember) localStorage.setItem("arrivals-pass", pass); else localStorage.removeItem("arrivals-pass"); } catch (e) {}
+    lockEl.hidden = true; document.getElementById("main").hidden = false;
+    startApp(data);
+  } catch (e) {
+    lockErr.textContent = e instanceof DOMException && e.name === "OperationError" || /decrypt|OperationError/i.test(String(e)) ? "That passphrase does not unlock this board. Check it with the airport team lead." : (window.isSecureContext ? "Could not unlock: " + (e.message || e) : "Unlocking needs a secure (https) page.");
+    btn.disabled = false; btn.textContent = "Unlock board";
+  }
+}
+lockForm.addEventListener("submit", e => { e.preventDefault(); tryUnlock(document.getElementById("pass").value, document.getElementById("volName").value, document.getElementById("remember").checked); });
+document.getElementById("lockBtn").addEventListener("click", () => { try { localStorage.removeItem("arrivals-pass"); } catch (e) {} location.reload(); });
+(function autoUnlock() {
+  let pass = "", name = ""; try { pass = localStorage.getItem("arrivals-pass") || ""; name = localStorage.getItem("arrivals-name") || ""; } catch (e) {}
+  if (name) document.getElementById("volName").value = name;
+  if (pass && name) tryUnlock(pass, name, true);
+})();
+
+function startApp(DATA) {
+
 const HOTELS = DATA.hotels;
 const ROWS = DATA.rows;
 const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -300,9 +371,7 @@ const state = {
   expanded: new Set(),
   flightDocs: new Map(),   // fid -> {status, note, by, at}
   delDocs: new Map(),      // code -> {met, note, by, at}
-  db: null, user: null, uid: null, canWrite: null, readOnly: false,
-  unsubDel: null, delSubDate: null,
-  profiles: {},
+  readOnly: false, online: false,
 };
 try { const s = JSON.parse(localStorage.getItem("arrivals-ui") || "{}"); if (s.hotel) state.hotel = s.hotel; if (s.airport) state.airport = s.airport; } catch (e) {}
 function saveUi() { try { localStorage.setItem("arrivals-ui", JSON.stringify({ hotel: state.hotel, airport: state.airport })); } catch (e) {} }
@@ -353,7 +422,7 @@ function renderChips() {
     const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (it.k === now0.date ? " today" : "");
     b.setAttribute("aria-pressed", String(state.date === it.k)); b.dataset.k = it.k;
     b.innerHTML = `${esc(it.label)}<span class="cnt num">${it.n}</span>`;
-    b.addEventListener("click", () => { state.date = it.k; state.expanded.clear(); renderChips(); subscribeDelegates(); renderAll(); });
+    b.addEventListener("click", () => { state.date = it.k; state.expanded.clear(); renderChips(); sync.setDates(datesOfInterest()); renderAll(); });
     el.appendChild(b);
   }
 }
@@ -435,7 +504,7 @@ function flightHtml(f, now) {
   const langs = [...f.langs.entries()].filter(([l]) => !/^English$/.test(l)).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, n]) => `<span class="flag lang">${esc(l)} ×${n}</span>`).join("");
   const flags = [f.minors ? `<span class="flag minor">${f.minors} minor${f.minors > 1 ? "s" : ""}</span>` : "", f.sfts ? `<span class="flag sfts">${f.sfts} SFTS</span>` : "", f.times.size > 1 ? `<span class="flag times" title="${esc([...f.times.keys()].join(", "))}">${f.times.size} times listed</span>` : "", langs].join("");
   const pct = f.rows.length ? Math.round(f.met / f.rows.length * 100) : 0;
-  const dis = state.readOnly || !state.db ? "disabled" : "";
+  const dis = state.readOnly ? "disabled" : "";
   const dateNote = state.date === "EARLY" || state.date === "LATE" ? `<small>${esc(fmtDate(f.date))}</small>` : `<small>${f.rows.length === 1 ? "" : f.times.size > 1 ? "most listed" : "listed"}</small>`;
   const ap = [...f.airports].join("/") || "—";
   return `<div class="${cls}" data-fid="${esc(f.fid)}" aria-expanded="${state.expanded.has(f.fid)}">
@@ -449,7 +518,7 @@ function flightHtml(f, now) {
       <div class="fstat">
         <select aria-label="Flight status" data-act="status" ${dis}>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${f.status === k ? "selected" : ""}>${v}</option>`).join("")}</select>
         <div class="prog"><i style="width:${pct}%"></i></div>
-        <div class="prog-l num">${f.met}/${f.rows.length} met${f.doc.by ? ` · <span class="by" data-uid="${esc(f.doc.by)}">updated</span>` : ""}</div>
+        <div class="prog-l num">${f.met}/${f.rows.length} met${f.doc.by ? ` · <span class="by">by ${esc(f.doc.by)}</span>` : ""}</div>
       </div>
       <button type="button" class="fx" data-act="toggle" aria-label="${state.expanded.has(f.fid) ? "Collapse" : "Expand"} delegate list">${state.expanded.has(f.fid) ? "–" : "+"}</button>
     </div>
@@ -457,7 +526,7 @@ function flightHtml(f, now) {
   </div>`;
 }
 function delegateRows(rows, opts = {}) {
-  const dis = state.readOnly || !state.db ? "disabled" : "";
+  const dis = state.readOnly ? "disabled" : "";
   return rows.map(r => {
     const d = state.delDocs.get(r.c) || {};
     return `<tr class="${d.met ? "met" : ""}" data-code="${esc(r.c)}">
@@ -469,7 +538,7 @@ function delegateRows(rows, opts = {}) {
       <td>${esc(r.l || "")}</td>
       <td class="num">${r.t && opts.showTime ? esc(r.t) : ""}${opts.showTime ? "" : `<span class="by">${esc(r.g)}</span>`}</td>
       <td><input type="text" class="note" data-act="note" placeholder="note…" value="${esc(d.note || "")}" aria-label="Note for ${esc(r.n)}" ${dis}></td>
-      <td class="by">${d.by ? `<span data-uid="${esc(d.by)}">…</span>` : ""}</td>
+      <td class="by">${d.by ? esc(d.by) : ""}</td>
     </tr>`;
   }).join("");
 }
@@ -477,7 +546,7 @@ function flightBody(f) {
   const groups = new Map();
   for (const r of f.rows) { if (!groups.has(r.g)) groups.set(r.g, []); groups.get(r.g).push(r); }
   const gl = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || a[1][0].n.localeCompare(b[1][0].n));
-  const dis = state.readOnly || !state.db ? "disabled" : "";
+  const dis = state.readOnly ? "disabled" : "";
   const allMet = f.met === f.rows.length;
   return `<div class="fbody">
     <div class="fbody-tools">
@@ -502,7 +571,6 @@ function renderBoard() {
   const el = document.getElementById("board");
   el.innerHTML = flights.length ? flights.map(f => flightHtml(f, now)).join("") : `<div class="empty">${state.nextOnly && state.date !== now.date ? "“Next 3 hours” only applies to today’s date in Manila." : "No flights match these filters."}</div>`;
   document.getElementById("boardSub").textContent = `${flights.length} of ${total} flights · ${state.date === "EARLY" ? "arrivals before " + fmtDate(CORE_DAYS[0]) : state.date === "LATE" ? "arrivals after " + fmtDate(CORE_DAYS[6]) : fmtDateLong(state.date)} · sorted by arrival time`;
-  resolveNames(el);
 }
 document.getElementById("board").addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -558,8 +626,7 @@ function renderSearch() {
   panel.hidden = false;
   document.getElementById("searchSub").textContent = hits.length === 60 ? "first 60 matches, all dates" : `${hits.length} match${hits.length === 1 ? "" : "es"}, all dates`;
   document.getElementById("searchBody").innerHTML = hits.length ? `<table class="del"><thead><tr><th>Met</th><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`;
-  fetchDelegateDocs(hits.filter(r => !state.delDocs.has(r.c)).map(r => r.c));
-  resolveNames(panel);
+  sync.fetchDelegates(hits.filter(r => !state.delDocs.has(r.c)).map(r => r.c));
 }
 
 function renderAll() {
@@ -575,90 +642,136 @@ function tickClock() {
 }
 tickClock(); setInterval(() => { const before = manilaNow().min; tickClock(); if (before % 5 === 0) renderBoard(); }, 30000);
 
-/* ---------- shared tracking (db) ---------- */
+/* ---------- shared tracking ---------- */
 const syncEl = document.getElementById("sync"), noticeEl = document.getElementById("notice");
 function setSync(stateName, text) { syncEl.dataset.state = stateName; syncEl.textContent = text; }
-function setReadOnly(msg) { state.readOnly = true; setSync("ro", "View only"); noticeEl.hidden = false; noticeEl.textContent = msg; renderAll(); }
-
-async function resolveNames(root) {
-  if (!state.user) return;
-  const els = [...root.querySelectorAll("[data-uid]")]; if (!els.length) return;
-  const ids = [...new Set(els.map(e => e.dataset.uid))];
-  const ps = await state.user.profiles(ids);
-  for (const e of els) { const p = ps[e.dataset.uid]; e.textContent = (e.textContent === "updated" ? "by " : "") + ((p && p.name) || "a volunteer"); }
-}
-function stamp(extra) { return Object.assign(extra, { by: state.uid || "unknown", at: new Date().toISOString() }); }
-const pending = new Map();   // doc path -> promise chain, one write at a time per doc
+function notice(msg) { noticeEl.hidden = !msg; noticeEl.textContent = msg || ""; }
+function setReadOnly(msg) { state.readOnly = true; setSync("ro", "View only"); notice(msg); renderAll(); }
+function datesOfInterest() { return state.date === "EARLY" ? earlyDates : state.date === "LATE" ? lateDates : [state.date]; }
+function stamp(extra) { return Object.assign(extra, { by: VOLUNTEER || "unknown", at: new Date().toISOString() }); }
+const pending = new Map();   // doc path -> promise chain, one write at a time per record
 function queue(path, fn) { const prev = pending.get(path) || Promise.resolve(); const next = prev.then(fn, fn).catch(onWriteError); pending.set(path, next); return next; }
 function onWriteError(e) {
-  if (!e) return; if (e.code === "invalid_argument") setReadOnly("Your access to this page is view-only. Ask the owner to make you a Contributor to record arrivals.");
-  else if (e.code === "quota_exceeded") setReadOnly("The tracking store is full. Ask the page owner to clear old records.");
-  else { setSync("off", "Save failed, retrying"); setTimeout(() => state.db && setSync("live", "Live"), 4000); }
-  console.error(e);
+  if (!e) return; console.error(e);
+  if (e.code === "permission-denied") setReadOnly("The shared store refused the update. Check the Firestore rules allow signed-in volunteers to write.");
+  else { setSync("off", "Save failed, retrying"); setTimeout(() => setSync(sync.mode === "firebase" ? "live" : "local", sync.mode === "firebase" ? "Live · shared" : "This device only"), 4000); }
 }
 function writeFlight(fid, patch) {
-  if (!state.db || !fid) return;
+  if (state.readOnly || !fid) return;
   const cur = state.flightDocs.get(fid) || {}; const next = stamp(Object.assign({}, cur, patch));
   if (cur.status === next.status && (cur.note || "") === (next.note || "")) return;
-  state.flightDocs.set(fid, next); renderBoard(); renderTiles(filterRows(dateKeyRows(state.date)), flightsOf(filterRows(dateKeyRows(state.date))));
-  queue("flights/" + fid, () => state.db.doc("flights/" + fid).set(next));
+  state.flightDocs.set(fid, next); renderAll();
+  queue("flights/" + fid, () => sync.writeFlight(fid, next));
 }
 function delegateBody(code, patch) {
   const r = ROWS.find(x => x.c === code); const cur = state.delDocs.get(code) || {};
   return stamp(Object.assign({ met: false, note: "" }, cur, patch, { date: r?.d || "", fid: r?.fid || "", hotel: r?.h || "" }));
 }
 function writeDelegate(code, patch) {
-  if (!state.db || !code) return;
+  if (state.readOnly || !code) return;
   const cur = state.delDocs.get(code) || {}; const next = delegateBody(code, patch);
   if (!!cur.met === !!next.met && (cur.note || "") === (next.note || "")) return;
   state.delDocs.set(code, next); renderAll();
-  queue("delegates/" + code, () => state.db.doc("delegates/" + code).set(next));
+  queue("delegates/" + code, () => sync.writeDelegate(code, next));
 }
 async function markFlight(fid, met) {
-  if (!state.db) return;
+  if (state.readOnly) return;
   const f = flightsOf(filterRows(dateKeyRows(state.date))).find(x => x.fid === fid); if (!f) return;
   const todo = f.rows.filter(r => !!state.delDocs.get(r.c)?.met !== met);
   for (const r of todo) state.delDocs.set(r.c, delegateBody(r.c, { met }));
   renderAll();
-  let i = 0; const workers = Array.from({ length: 4 }, async () => { while (i < todo.length) { const r = todo[i++]; await queue("delegates/" + r.c, () => state.db.doc("delegates/" + r.c).set(state.delDocs.get(r.c))); } });
+  let i = 0; const workers = Array.from({ length: 4 }, async () => { while (i < todo.length) { const r = todo[i++]; await queue("delegates/" + r.c, () => sync.writeDelegate(r.c, state.delDocs.get(r.c))); } });
   await Promise.all(workers);
 }
-async function fetchDelegateDocs(codes) {
-  if (!state.db || !codes.length) return;
-  const batch = codes.slice(0, 60); let changed = false;
-  await Promise.all(batch.map(async c => { try { const s = await state.db.doc("delegates/" + c).get(); if (s.exists) { state.delDocs.set(c, s.data()); changed = true; } } catch (e) {} }));
-  if (changed && state.q) renderSearch();
+function applyFlightDocs(map) { state.flightDocs = map; renderAll(); }
+function applyDelegateDocs(changes) { for (const [id, data] of changes) { if (data) state.delDocs.set(id, data); else state.delDocs.delete(id); } renderAll(); }
+
+/* Local adapter: this device only, with export/import so a coordinator can merge devices. */
+function localAdapter() {
+  const KEY = "arrivals-track";
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; } };
+  const save = (d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { throw { code: "storage", message: String(e) }; } };
+  let store = load(); store.flights ||= {}; store.delegates ||= {};
+  const push = () => { applyFlightDocs(new Map(Object.entries(store.flights))); applyDelegateDocs(Object.entries(store.delegates)); };
+  window.addEventListener("storage", e => { if (e.key === KEY) { store = load(); store.flights ||= {}; store.delegates ||= {}; push(); } });
+  return {
+    mode: "local",
+    async start() { push(); setSync("local", "This device only"); document.getElementById("exportBtn").hidden = false; document.getElementById("importBtn").hidden = false;
+      notice("Shared sync is not configured, so met checks and notes stay on this device. Use Export / Import to pass them to a coordinator, or add a Firebase config (see the README) to sync every volunteer live."); },
+    setDates() {},
+    async writeFlight(id, data) { store.flights[id] = data; save(store); },
+    async writeDelegate(code, data) { store.delegates[code] = data; save(store); },
+    async fetchDelegates() {},
+    exportJson() { return JSON.stringify({ exportedAt: new Date().toISOString(), by: VOLUNTEER, flights: store.flights, delegates: store.delegates }, null, 1); },
+    importJson(txt) {
+      const d = JSON.parse(txt); let n = 0;
+      for (const [k, v] of Object.entries(d.flights || {})) { if (!store.flights[k] || (v.at || "") > (store.flights[k].at || "")) { store.flights[k] = v; n++; } }
+      for (const [k, v] of Object.entries(d.delegates || {})) { if (!store.delegates[k] || (v.at || "") > (store.delegates[k].at || "")) { store.delegates[k] = v; n++; } }
+      save(store); push(); return n;
+    },
+  };
 }
-function subscribeDelegates() {
-  if (!state.db) return;
-  const dates = state.date === "EARLY" ? earlyDates : state.date === "LATE" ? lateDates : [state.date];
-  const key = dates.join(",");
-  if (state.delSubDate === key) return;
-  if (state.unsubDel) { state.unsubDel(); state.unsubDel = null; }
-  state.delSubDate = key;
-  const q = dates.length === 1 ? state.db.collection("delegates").where("date", "==", dates[0]) : state.db.collection("delegates").where("date", "in", dates.slice(0, 30));
-  state.unsubDel = q.onSnapshot(snap => {
-    for (const ch of snap.docChanges()) { if (ch.type === "removed") state.delDocs.delete(ch.doc.id); else state.delDocs.set(ch.doc.id, ch.doc.data()); }
-    renderAll();
-  }, e => { console.error(e); if (e.code === "revoked") setReadOnly("Live updates stopped: your access changed. Reload to try again."); });
+
+/* Firebase adapter: live sync for every volunteer. Needs config.js with firebase settings (see README). */
+function firebaseAdapter(cfg) {
+  const V = "10.12.2", base = `https://www.gstatic.com/firebasejs/${V}/`;
+  let fs, db, unsubDel = null, subKey = null;
+  async function subscribeDelegates(dates) {
+    const key = dates.join(","); if (key === subKey) return; subKey = key;
+    if (unsubDel) { unsubDel(); unsubDel = null; }
+    if (!dates.length) return;
+    const q = fs.query(fs.collection(db, "delegates"), fs.where("date", "in", dates.slice(0, 30)));
+    unsubDel = fs.onSnapshot(q, snap => applyDelegateDocs(snap.docChanges().map(ch => [ch.doc.id, ch.type === "removed" ? null : ch.doc.data()])),
+      e => { console.error(e); if (e.code === "permission-denied") setReadOnly("The shared store refused to load. Check the Firestore rules allow signed-in volunteers to read."); });
+  }
+  return {
+    mode: "firebase",
+    async start(dates) {
+      setSync("off", "Connecting…");
+      const [{ initializeApp }, auth, f] = await Promise.all([import(base + "firebase-app.js"), import(base + "firebase-auth.js"), import(base + "firebase-firestore.js")]);
+      fs = f;
+      const app = initializeApp(cfg);
+      try { db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) }); }
+      catch (e) { db = fs.getFirestore(app); }
+      await auth.signInAnonymously(auth.getAuth(app));
+      fs.onSnapshot(fs.collection(db, "flights"), snap => { const m = new Map(state.flightDocs); for (const ch of snap.docChanges()) { if (ch.type === "removed") m.delete(ch.doc.id); else m.set(ch.doc.id, ch.doc.data()); } applyFlightDocs(m); },
+        e => { console.error(e); if (e.code === "permission-denied") setReadOnly("The shared store refused to load. Check the Firestore rules allow signed-in volunteers to read."); });
+      await subscribeDelegates(dates);
+      setSync("live", "Live · shared"); notice("");
+    },
+    setDates(dates) { if (fs) subscribeDelegates(dates); },
+    async writeFlight(id, data) { await fs.setDoc(fs.doc(db, "flights", id), data); },
+    async writeDelegate(code, data) { await fs.setDoc(fs.doc(db, "delegates", code), data); },
+    async fetchDelegates(codes) {
+      if (!fs || !codes.length) return; const got = [];
+      await Promise.all(codes.slice(0, 60).map(async c => { try { const s = await fs.getDoc(fs.doc(db, "delegates", c)); if (s.exists()) got.push([c, s.data()]); } catch (e) {} }));
+      if (got.length) { applyDelegateDocs(got); if (state.q) renderSearch(); }
+    },
+  };
 }
+
+const cfg = (window.ARRIVALS_CONFIG && window.ARRIVALS_CONFIG.firebase) || null;
+const sync = cfg ? firebaseAdapter(cfg) : localAdapter();
+document.getElementById("exportBtn").addEventListener("click", () => {
+  if (!sync.exportJson) return; const blob = new Blob([sync.exportJson()], { type: "application/json" }); const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `arrivals-tracking-${manilaNow().date}-${(VOLUNTEER || "device").replace(/\W+/g, "-")}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f || !sync.importJson) return;
+  try { const n = sync.importJson(await f.text()); notice(`Imported ${n} newer record${n === 1 ? "" : "s"} from ${f.name}.`); } catch (err) { notice("That file is not a tracking export from this board."); }
+  e.target.value = "";
+});
+
 async function boot() {
   renderChips(); renderAll();
-  const use = n => (window.claude && typeof window.claude.use === "function") ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
-  const [db, user] = await Promise.all([use("db"), use("user")]);
-  state.user = user;
-  if (!db) { setSync("off", "Tracking offline"); noticeEl.hidden = false; noticeEl.textContent = "Shared tracking is unavailable in this view. Open the page signed in to claude.ai to record arrivals; the schedule below is still correct."; return; }
-  state.db = db; state.uid = user ? await user.id() : null;
-  const cw = user ? await user.can("data.write") : null; state.canWrite = cw;
-  if (cw === false) { setReadOnly("You can view the board but not record arrivals. Ask the page owner to make you a Contributor."); }
-  else setSync("live", "Live");
-  db.collection("flights").onSnapshot(snap => {
-    for (const ch of snap.docChanges()) { if (ch.type === "removed") state.flightDocs.delete(ch.doc.id); else state.flightDocs.set(ch.doc.id, ch.doc.data()); }
-    renderAll();
-  }, e => { console.error(e); if (e.code === "revoked") setReadOnly("Live updates stopped: your access changed. Reload to try again."); });
-  subscribeDelegates();
-  renderAll();
+  document.getElementById("who").textContent = VOLUNTEER;
+  try { await sync.start(datesOfInterest()); }
+  catch (e) { console.error(e); setSync("off", "Shared sync failed"); notice("Could not connect to the shared store (" + (e.code || e.message || "unknown error") + "). Updates you make now stay on this device only."); const fallback = localAdapter(); Object.assign(sync, fallback); await sync.start(); }
 }
-document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. “Met” checks, flight status and notes are shared live between everyone with Contributor access; the hotel lists themselves are not updated from here.`;
+document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. The hotel lists themselves are not updated from here.`;
 boot();
+}
 </script>
+</body>
+</html>

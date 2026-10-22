@@ -1,10 +1,19 @@
-"""Build dashboard/arrivals.html from the 11 hotel master-list workbooks.
+"""Build the GitHub Pages arrivals board from the hotel master-list workbooks.
 
-Usage: python3 -I build.py <output.html> <template.html> <xlsx files...>
+Usage:
+  ARRIVALS_PASSPHRASE='...' python3 -I build.py <output.html> <template.html> <xlsx files...>
+
+The delegate data is encrypted with the passphrase (PBKDF2-SHA256 -> AES-256-GCM)
+before it is embedded, so the published page holds only ciphertext. Volunteers
+type the passphrase once to unlock the board on their device.
 """
-import sys, json, re, os, datetime, collections, openpyxl
+import sys, os, re, json, base64, hashlib, secrets, datetime, collections, openpyxl
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 out_path, tpl_path, files = sys.argv[1], sys.argv[2], sys.argv[3:]
+passphrase = os.environ.get("ARRIVALS_PASSPHRASE", "")
+if not passphrase:
+    sys.exit("Set ARRIVALS_PASSPHRASE (the passphrase volunteers will use to unlock the board).")
 
 SHORT = {
     "GRANDWEST": "Grand Westside", "SEDA": "Seda", "OKADA": "Okada", "LANSON": "Lanson Place",
@@ -12,6 +21,7 @@ SHORT = {
     "MANILAHOTEL": "Manila Hotel", "SAVOY": "Savoy", "CONRAD": "Conrad",
 }
 EVENT_WINDOW = ("2026-10-16", "2026-10-31")   # arrival dates outside this are flagged
+PBKDF2_ITER = 200_000
 
 def dt(v):
     if v is None: return None
@@ -36,7 +46,7 @@ for p in files:
     wb = openpyxl.load_workbook(p, data_only=True)
     ws = wb["Master List"]
     data = list(ws.iter_rows(values_only=True))
-    key = os.path.basename(p).split("-", 1)[1].split("_")[0]
+    key = os.path.basename(p).split("-", 1)[-1].split("_")[0]
     full = str(data[0][0]).split("|")[0].strip()
     hotels[key] = {"name": full, "short": SHORT.get(key, full)}
     m = re.search(r"Generated: ([^|]+)", str(data[1][0]))
@@ -64,7 +74,7 @@ for p in files:
             "gp": d["Gap Nights"], "r": d["Special Rooming"], "q": q,
         })
 
-# delegate codes must be unique among active rows (they key the shared tracking docs)
+# delegate codes must be unique among active rows (they key the shared tracking records)
 codes = collections.Counter(r["c"] for r in rows)
 for r in rows:
     if codes[r["c"]] > 1:
@@ -72,7 +82,15 @@ for r in rows:
 
 payload = {"hotels": hotels, "rows": rows, "cancelled": cancelled, "generated": generated,
            "window": EVENT_WINDOW}
+plain = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+salt, iv = secrets.token_bytes(16), secrets.token_bytes(12)
+key = hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, PBKDF2_ITER, 32)
+ct = AESGCM(key).encrypt(iv, plain, None)
+b64 = lambda b: base64.b64encode(b).decode("ascii")
+enc = {"v": 1, "kdf": "PBKDF2-SHA256", "iter": PBKDF2_ITER, "salt": b64(salt), "iv": b64(iv), "ct": b64(ct),
+       "generated": generated, "rows": len(rows)}
 tpl = open(tpl_path, encoding="utf-8").read()
-html = tpl.replace("__DATA__", json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+html = tpl.replace("__ENC__", json.dumps(enc, separators=(",", ":")))
+os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 open(out_path, "w", encoding="utf-8").write(html)
-print(f"rows={len(rows)} cancelled={cancelled} hotels={len(hotels)} generated={generated} bytes={len(html)}")
+print(f"rows={len(rows)} cancelled={cancelled} hotels={len(hotels)} generated={generated} plain={len(plain)}B page={len(html)}B")
