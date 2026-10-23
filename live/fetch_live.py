@@ -30,7 +30,7 @@ UNITS_PER_CALL = int(os.environ.get("LIVE_UNITS_PER_CALL", "2"))
 AIRPORTS = [a.strip().upper() for a in os.environ.get("LIVE_AIRPORTS", "MNL,CRK").split(",") if a.strip()]
 FORCE, DRY = "--force" in sys.argv, "--dry-run" in sys.argv
 LOOKBACK = dt.timedelta(minutes=60)       # catch flights that just landed
-WINDOW = dt.timedelta(hours=12)           # AeroDataBox allows at most 12 h per call
+WINDOW = dt.timedelta(hours=11, minutes=55)   # AeroDataBox allows at most 12 h per call
 
 def norm_flight(s):
     return re.sub(r"\s+", "", str(s or "")).upper()
@@ -72,18 +72,35 @@ def aerodatabox(airport, start, end):
     fmt = lambda d: d.strftime("%Y-%m-%dT%H:%M")
     url = (f"https://aerodatabox.p.rapidapi.com/flights/airports/iata/{airport}/{fmt(start)}/{fmt(end)}"
            "?direction=Arrival&withLeg=false&withCancelled=true&withCodeshared=true&withCargo=false&withPrivate=false&withLocation=false")
-    data, _ = fetch_json(url, {"X-RapidAPI-Key": key, "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com"})
-    return normalize_aerodatabox(data), UNITS_PER_CALL
+    data, headers = fetch_json(url, {"X-RapidAPI-Key": key, "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com"})
+    found = normalize_aerodatabox(data)
+    DIAG.append(describe_response(data, headers))
+    return found, UNITS_PER_CALL
+
+def _t(obj, *keys):
+    """First present time among nested {local, utc} objects or flat strings."""
+    for k in keys:
+        v = obj.get(k)
+        if isinstance(v, dict): v = v.get("local") or v.get("utc")
+        if v: return v
+    return None
 
 def normalize_aerodatabox(data):
     out = {}
-    for f in data.get("arrivals", []) or []:
+    if isinstance(data, list): flights = data
+    elif isinstance(data, dict): flights = (data.get("arrivals") or data.get("departures") or data.get("flights") or [])
+    else: flights = []
+    for f in flights:
+        if not isinstance(f, dict): continue
         num = norm_flight(f.get("number"))
         if not num: continue
-        arr, dep = f.get("arrival") or {}, f.get("departure") or {}
-        sd, st = hm((arr.get("scheduledTime") or {}).get("local") or (arr.get("scheduledTime") or {}).get("utc"))
-        _, est = hm((arr.get("revisedTime") or arr.get("predictedTime") or {}).get("local") or (arr.get("revisedTime") or arr.get("predictedTime") or {}).get("utc"))
-        _, act = hm((arr.get("runwayTime") or {}).get("local") or (arr.get("runwayTime") or {}).get("utc"))
+        if "arrival" in f or "departure" in f:
+            arr, dep = f.get("arrival") or {}, f.get("departure") or {}
+        else:   # pre-2023 flat shape: one "movement" block describing the other end of the flight
+            arr, dep = f.get("movement") or {}, {"airport": (f.get("movement") or {}).get("airport") or {}}
+        sd, st = hm(_t(arr, "scheduledTime", "scheduledTimeLocal", "scheduledTimeUtc"))
+        _, est = hm(_t(arr, "revisedTime", "predictedTime", "estimatedTimeLocal", "actualTimeLocal", "actualTimeUtc"))
+        _, act = hm(_t(arr, "runwayTime", "actualTimeLocal", "actualTimeUtc"))
         if not sd: continue
         raw = f.get("status") or ""
         out[f"{sd}_{num}"] = {
@@ -121,6 +138,27 @@ def normalize_aeroapi(flights):
         for i, n in enumerate(n for n in nums if n):
             out[f"{sd}_{n}"] = dict(rec, cs=i > 0)
     return out
+
+DIAG = []
+def describe_response(data, headers):
+    """A compact description of what the provider sent, for the run log and live.json."""
+    d = {"type": type(data).__name__}
+    if isinstance(data, dict):
+        d["keys"] = sorted(data.keys())[:12]
+        d["counts"] = {k: len(v) for k, v in data.items() if isinstance(v, list)}
+        first = next((v[0] for v in data.values() if isinstance(v, list) and v), None)
+    elif isinstance(data, list):
+        d["count"] = len(data); first = data[0] if data else None
+    else:
+        first = None; d["value"] = str(data)[:200]
+    if isinstance(first, dict):
+        d["firstKeys"] = sorted(first.keys())
+        d["firstNumber"] = first.get("number"); d["firstStatus"] = first.get("status")
+        for side in ("arrival", "departure", "movement"):
+            if isinstance(first.get(side), dict): d[side + "Keys"] = sorted(first[side].keys())
+    d["rateLimit"] = {k: v for k, v in headers.items() if "ratelimit" in k.lower()}
+    print("provider response:", json.dumps(d))
+    return d
 
 PROVIDERS = {"aerodatabox": aerodatabox, "aeroapi": aeroapi}
 
@@ -195,6 +233,7 @@ def main():
     cutoff = (now - dt.timedelta(hours=36)).strftime("%Y-%m-%d")
     live["flights"] = {k: v for k, v in live["flights"].items() if k[:10] >= cutoff}
     live["usage"]["units"] = used + spent
+    if DIAG: live["lastResponse"] = DIAG[-1]
     live["updatedAt"] = now.isoformat()
     live["notes"] = notes
     print("\n".join(notes)); print(f"units this month: {used + spent}/{BUDGET}; tracked flights: {len(live['flights'])}")
