@@ -47,12 +47,50 @@ def hotel_of(accommodation, pickup):
         if (pickup or "").strip().lower() == full.lower(): return code, (text if text else "")
     return "OTHER", text
 
-def norm_flight(f):
+# ---- flight-number cleaning -------------------------------------------------
+# Exports carry things like "PHILIPPINEAIRLINES103", "809", "KE623A330-300", "NGO-MNL5J5039" or "CX138,CX907".
+AIRLINE_WORDS = [  # fragments of airline names typed instead of a code, longest first
+    ("PHILIPPINESAIRLINES", "PR"), ("PHILIPPINEAIRLINES", "PR"), ("PHILIPPINEAIR", "PR"), ("MALAYSIAAIRLINES", "MH"),
+    ("ASIANAAIRLINES", "OZ"), ("ALASKAAIRLINES", "AS"), ("UNITEDAIRLINES", "UA"), ("QATARAIRWAYS", "QR"), ("NIPPONAIRWAYS", "NH"),
+    ("CEBUPACIFIC", "5J"), ("KOREANAIR", "KE"), ("AIRCANADA", "AC"), ("EVAAIRWAYS", "BR"), ("AIRNIUGINI", "PX"), ("AIRASIA", "Z2"),
+    ("EVAAIR", "BR"), ("ASIANA", "OZ"), ("QATAR", "QR"), ("CEBU", "5J"), ("ANA", "NH"),
+]
+FLIGHT_CODES = ["PR", "5J", "UA", "OZ", "KE", "SQ", "NH", "QR", "BR", "MH", "TG", "CI", "JL", "QF", "CX", "EK", "Z2", "ET", "AK", "EY",
+                "TK", "PX", "AC", "VN", "CA", "KL", "AF", "LH", "CZ", "JQ", "SV", "UO", "JX", "GF", "WY", "AA", "AI", "MF", "TR", "DG",
+                "IB", "SK", "LX", "BI", "7C", "FJ", "AS", "2P", "DL", "HX", "KA", "3K", "TW", "LJ", "ZE", "GK", "RX", "BX", "KU", "VJ"]
+AIRLINE_CODE_FALLBACK = {}   # filled from the export: airline name -> most common code
+_code_alt = "|".join(sorted(FLIGHT_CODES, key=len, reverse=True))
+FLIGHT_TOKEN = re.compile(r"(" + _code_alt + r")[ -]?0*(\d{1,4})(?![0-9])")
+COMMON = collections.Counter()  # canonical flight numbers seen in the export, to pick the arriving leg of "KE38, KE623"
+
+def canon(code, num, suffix=""):
+    return f"{code}{int(num)}{suffix}"
+
+def pick(cands):
+    """Prefer the flight other delegates arrive on; otherwise the last one listed (usually the leg into Manila)."""
+    return max(cands, key=lambda t: (COMMON.get(t, 0), cands.index(t))) if cands else None
+
+def norm_flight(f, airline=None):
     if not f: return None
-    s = re.sub(r"\s+", "", str(f)).upper()
-    s = re.sub(r"^([A-Z]{2})O(\d)", r"\g<1>0\2", s)      # BRO261 -> BR0261 (letter O typed for zero)
-    m = re.match(r"^([A-Z][A-Z0-9]|[0-9][A-Z])([A-Z]?)0*(\d+)([A-Z]?)$", s)
-    return f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}" if m else (s or None)
+    t = re.sub(r"[^\x20-\x7E]", " ", str(f).upper())            # Korean/Chinese airline names, zero-width marks -> spaces
+    compact = re.sub(r"\s+", "", t)
+    compact = re.sub(r"^([A-Z]{2})O(\d)", r"\g<1>0\2", compact)   # BRO261 -> BR0261 (letter O typed for zero)
+    compact = re.sub(r"^0Z(\d)", r"OZ\1", compact)                 # 0Z701 -> OZ701 (zero typed for letter O)
+    if not compact: return None
+    m = re.match(r"^([A-Z][A-Z0-9]|[0-9][A-Z])([A-Z]?)-?0*(\d{1,4})([A-Z]?)$", compact)
+    if m and m.group(1) in FLIGHT_CODES: return canon(m.group(1) + m.group(2), m.group(3), m.group(4))
+    code = AIRLINE_CODE_FALLBACK.get(airline or "")
+    found = pick([canon(a, b) for a, b in FLIGHT_TOKEN.findall(t)])
+    if found: return found
+    words_joined = re.sub(r"(?<=[A-Z]) +(?=[A-Z])", "", t)         # "PHILIPPINE AIRLINES 401 7:20" -> "PHILIPPINEAIRLINES 401 7:20"
+    for word, wcode in AIRLINE_WORDS:
+        i = words_joined.find(word)
+        if i >= 0:
+            after = words_joined[i + len(word):]
+            return pick([canon(wcode, n) for n in re.findall(r"(?<![0-9])0*(\d{1,4})(?![0-9])", after)])
+    d = re.match(r"^([A-Z]?)0*(\d{1,4})$", compact)              # "809", "P119", "Q926": the airline's code supplies the prefix
+    if d and code and (not d.group(1) or d.group(1) == code[0]): return canon(code, d.group(2))
+    return None   # a booking reference, airport, aircraft type or city: no usable flight number
 
 def path_safe(s):
     return re.sub(r"[^A-Za-z0-9_\-.~:@+]", "-", s)
@@ -74,6 +112,15 @@ export = list(csv.DictReader(io.StringIO(raw)))
 m = re.search(r"(\d{4}-\d{2}-\d{2})", os.path.basename(csv_path))
 generated = datetime.date.fromisoformat(m.group(1)).strftime("%b %d, %Y") if m else datetime.date.today().strftime("%b %d, %Y")
 
+for d in export:   # learn each airline's code and the common flight numbers from the well-formed entries
+    raw = re.sub(r"\s+", "", (d.get("Arrival Flight Number") or "")).upper()
+    m = re.match(r"^([A-Z][A-Z0-9]|[0-9][A-Z])([A-Z]?)-?0*(\d{1,4})([A-Z]?)$", raw)
+    if m and m.group(1) in FLIGHT_CODES:
+        COMMON[canon(m.group(1) + m.group(2), m.group(3), m.group(4))] += 1
+        AIRLINE_CODE_FALLBACK.setdefault(d.get("Arrival Airline") or "", collections.Counter())[m.group(1)] += 1
+AIRLINE_CODE_FALLBACK = {k: v.most_common(1)[0][0] for k, v in AIRLINE_CODE_FALLBACK.items() if v}
+AIRLINE_CODE_FALLBACK.setdefault("PAL Airlines", "PR"); AIRLINE_CODE_FALLBACK.setdefault("Alaska Airlines", "AS")
+
 rows, cancelled, hotels_seen = [], 0, set()
 for d in export:
     if (d.get("Status") or "Confirmed") != "Confirmed":
@@ -81,7 +128,7 @@ for d in export:
     code = d["Delegate Code"].strip()
     h, rooming = hotel_of(d.get("Accommodations"), d.get("Group's Pickup Location"))
     hotels_seen.add(h)
-    fl = norm_flight(d.get("Arrival Flight Number"))
+    fl = norm_flight(d.get("Arrival Flight Number"), d.get("Arrival Airline"))
     ad = (d.get("Arrival Date") or "").strip() or None
     t = (d.get("Arrival Time") or "").strip()[:5] or None
     mode = (d.get("Arrival Transportation Mode") or "").strip()
