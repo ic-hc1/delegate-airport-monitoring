@@ -2,7 +2,7 @@ name: Live flight status
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "13,43 * * * *"   # off the hour and half-hour, when GitHub's scheduler is least congested
   workflow_dispatch:
     inputs:
       force:

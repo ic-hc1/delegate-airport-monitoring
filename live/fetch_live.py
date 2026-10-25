@@ -29,7 +29,7 @@ BUDGET = int(os.environ.get("LIVE_MONTHLY_UNITS", "400"))
 UNITS_PER_CALL = int(os.environ.get("LIVE_UNITS_PER_CALL", "2"))
 AIRPORTS = [a.strip().upper() for a in os.environ.get("LIVE_AIRPORTS", "MNL,CRK").split(",") if a.strip()]
 FORCE, DRY = "--force" in sys.argv, "--dry-run" in sys.argv
-LOOKBACK = dt.timedelta(minutes=60)       # catch flights that just landed
+LOOKBACK = dt.timedelta(hours=5)          # refresh flights that landed since the previous poll, even when polls are hours apart
 WINDOW = dt.timedelta(hours=11, minutes=55)   # AeroDataBox allows at most 12 h per call
 
 def norm_flight(s):
@@ -246,7 +246,13 @@ def main():
     cutoff = (now - dt.timedelta(hours=36)).strftime("%Y-%m-%d")
     live["flights"] = {k: v for k, v in live["flights"].items() if k[:10] >= cutoff}
     live["usage"]["units"] = used + spent
-    if DIAG: live["lastResponse"] = DIAG[-1]
+    if DIAG:
+        live["lastResponse"] = DIAG[-1]
+        hdr = {k.lower(): v for k, v in (DIAG[-1].get("rateLimit") or {}).items()}
+        rem = hdr.get("x-ratelimit-api-units-remaining")
+        if rem is not None and str(rem).isdigit():        # the provider's own count beats ours
+            live["remainingUnits"] = int(rem); live["usage"]["units"] = max(0, BUDGET - int(rem))
+            if int(rem) < UNITS_PER_CALL: live["budgetExhausted"] = True
     live["updatedAt"] = now.isoformat()
     live["notes"] = notes
     print("\n".join(notes)); print(f"units this month: {used + spent}/{BUDGET}; tracked flights: {len(live['flights'])}")
