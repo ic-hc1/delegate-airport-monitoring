@@ -86,6 +86,16 @@ select, input[type="search"], input[type="text"] { border: 1px solid var(--line-
 input[type="search"] { flex: 1 1 220px; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 
+.searchrow { display: flex; gap: 10px; align-items: center; }
+.searchrow label { font-family: var(--display); font-size: 18px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.searchrow input { flex: 1 1 auto; font-size: 16px; padding: 10px 12px; }
+.sflights { display: grid; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sflight { text-align: left; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; padding: 8px 10px; font: inherit; color: inherit; line-height: 1.3; }
+.sflight:hover { background: var(--surface-2); }
+.sflight b { font-family: var(--display); font-size: 18px; margin-right: 6px; letter-spacing: .03em; }
+.sflight .live { margin: 0 0 0 6px; }
+.btn.goto { padding: 3px 8px; font-size: 12px; }
+
 /* ---- tiles ---- */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow); min-width: 0; }
@@ -273,6 +283,7 @@ table.plain td.r, table.plain th.r { text-align: right; }
   <div class="notice" id="notice" hidden></div>
 
   <section class="controls" aria-label="Filters">
+    <div class="searchrow"><label for="q">Search</label><input type="search" id="q" placeholder="Delegate name, flight number (e.g. PR103), delegate or group code" aria-label="Search delegates and flights" autocomplete="off"></div>
     <div class="chips" id="dateChips" role="group" aria-label="Arrival date"></div>
     <div class="row2">
       <div class="seg" id="airportSeg" role="group" aria-label="Airport">
@@ -283,7 +294,6 @@ table.plain td.r, table.plain th.r { text-align: right; }
       <select id="hotelSel" aria-label="Hotel"><option value="ALL">All hotels</option></select>
       <label class="toggle"><input type="checkbox" id="nextOnly"> Next 3 hours only</label>
       <label class="toggle"><input type="checkbox" id="hideDone"> Hide completed flights</label>
-      <input type="search" id="q" placeholder="Search name, delegate code, group code or flight…" aria-label="Search delegates">
     </div>
   </section>
 
@@ -487,7 +497,7 @@ document.getElementById("airportSeg").addEventListener("click", e => {
 })();
 document.getElementById("nextOnly").addEventListener("change", e => { state.nextOnly = e.target.checked; renderAll(); });
 document.getElementById("hideDone").addEventListener("change", e => { state.hideDone = e.target.checked; renderAll(); });
-let qTimer; document.getElementById("q").addEventListener("input", e => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); renderSearch(); }, 150); });
+let qTimer; document.getElementById("q").addEventListener("input", e => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); renderSearch(); renderBoard(); }, 150); });
 document.getElementById("collapseAll").addEventListener("click", () => { state.expanded.clear(); renderBoard(); });
 
 /* ---------- render: tiles ---------- */
@@ -646,7 +656,7 @@ function delegateRows(rows, opts = {}) {
       <td>${esc(r.l || "")}</td>
       <td class="num">${r.t && opts.showTime ? esc(r.t) : ""}${opts.showTime ? "" : `<span class="by">${esc(r.g)}</span>`}</td>
       <td><input type="text" class="note" data-act="note" placeholder="note…" value="${esc(d.note || "")}" aria-label="Note for ${esc(r.n)}" ${dis}></td>
-      <td class="by">${d.by ? esc(d.by) : ""}</td>
+      <td class="by">${opts.flight ? (clean.includes(r) ? `<button type="button" class="btn goto" data-act="goto" data-date="${esc(r.d)}" data-fid="${esc(r.fid)}">Show on board</button>` : `<span class="by">in needs checking</span>`) : (d.by ? esc(d.by) : "")}</td>
     </tr>`;
   }).join("");
 }
@@ -670,12 +680,13 @@ function flightBody(f) {
 function renderBoard() {
   const now = manilaNow();
   let flights = flightsOf(filterRows(dateKeyRows(state.date)));
-  const total = flights.length;
+  const total = flights.length; const p = queryParts();
+  if (p.q.length >= 2) flights = flights.filter(f => flightMatches(f, p) || f.rows.some(r => rowMatches(r, p)));
   if (state.nextOnly) flights = flights.filter(f => isNowWindow(f, now));
   if (state.hideDone) flights = flights.filter(f => f.status !== "done");
   const el = document.getElementById("board");
   el.innerHTML = flights.length ? flights.map(f => flightHtml(f, now)).join("") : `<div class="empty">${state.nextOnly && state.date !== now.date ? "“Next 3 hours” only applies to today’s date in Manila." : "No flights match these filters."}</div>`;
-  document.getElementById("boardSub").textContent = `${flights.length} of ${total} flights · ${state.date === "EARLY" ? "arrivals before " + fmtDate(CORE_DAYS[0]) : state.date === "LATE" ? "arrivals after " + fmtDate(CORE_DAYS[6]) : fmtDateLong(state.date)} · sorted by arrival time`;
+  document.getElementById("boardSub").textContent = `${flights.length} of ${total} flights · ${state.date === "EARLY" ? "arrivals before " + fmtDate(CORE_DAYS[0]) : state.date === "LATE" ? "arrivals after " + fmtDate(CORE_DAYS[6]) : fmtDateLong(state.date)} · sorted by arrival time${p.q.length >= 2 ? ` · matching “${state.q.trim()}”` : ""}`;
 }
 document.getElementById("board").addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -719,16 +730,28 @@ function renderNeedsChecking() {
 }
 
 /* ---------- render: search ---------- */
+function queryParts() { const q = state.q.trim().toLowerCase(); return { q, qf: q.replace(/[\s-]+/g, "").toUpperCase() }; }
+function rowMatches(r, p) { return (r.n && r.n.toLowerCase().includes(p.q)) || (r.c && r.c.toLowerCase().includes(p.q)) || (r.g && r.g.toLowerCase().includes(p.q)); }
+function flightMatches(f, p) { return p.qf.length >= 2 && f.fl !== "NOFLIGHT" && canon(f.fl).includes(p.qf); }
+function dateKeyOf(d) { return CORE_DAYS.includes(d) ? d : d < CORE_DAYS[0] ? "EARLY" : "LATE"; }
 function renderSearch() {
-  const panel = document.getElementById("searchPanel");
-  const q = state.q.toLowerCase();
-  if (q.length < 2) { panel.hidden = true; return; }
-  const hits = ROWS.filter(r => (r.n && r.n.toLowerCase().includes(q)) || (r.c && r.c.toLowerCase().includes(q)) || (r.g && r.g.toLowerCase().includes(q)) || (r.fl && r.fl.toLowerCase().includes(q.replace(/\s+/g, "")))).slice(0, 60);
+  const panel = document.getElementById("searchPanel"); const p = queryParts();
+  if (p.q.length < 2) { panel.hidden = true; return; }
+  const flights = flightsOf(clean).filter(f => flightMatches(f, p)).sort((a, b) => (a.date || "").localeCompare(b.date || "") || (toMin(a.time) ?? 9e9) - (toMin(b.time) ?? 9e9));
+  const hits = ROWS.filter(r => rowMatches(r, p)).slice(0, 60);
   panel.hidden = false;
-  document.getElementById("searchSub").textContent = hits.length === 60 ? "first 60 matches, all dates" : `${hits.length} match${hits.length === 1 ? "" : "es"}, all dates`;
-  document.getElementById("searchBody").innerHTML = hits.length ? `<table class="del"><thead><tr><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`;
+  document.getElementById("searchSub").textContent = `${flights.length} flight${flights.length === 1 ? "" : "s"} · ${hits.length === 60 ? "first 60 delegates" : hits.length + " delegate" + (hits.length === 1 ? "" : "s")} · all dates`;
+  const fl = flights.length ? `<div class="sflights">${flights.slice(0, 20).map(f => `<button type="button" class="sflight" data-act="goto" data-date="${esc(f.date)}" data-fid="${esc(f.fid)}"><b>${esc(f.fl)}</b>${esc(fmtDate(f.date))} ${esc(f.time || "")} · ${esc([...f.airports].join("/") || "")} · ${f.rows.length} pax · ${esc([...f.hotels.entries()].sort((a, b) => b[1] - a[1]).map(([h, n]) => hShort(h) + " " + n).join(", "))}${liveHtml(f)}</button>`).join("")}${flights.length > 20 ? `<div class="by">${flights.length - 20} more flights match; type more of the number.</div>` : ""}</div>` : "";
+  document.getElementById("searchBody").innerHTML = fl + (hits.length ? `<table class="del"><thead><tr><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : flights.length ? "" : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`);
   sync.fetchDelegates(hits.filter(r => !state.delDocs.has(r.c)).map(r => r.c));
 }
+document.getElementById("searchPanel").addEventListener("click", e => {
+  const b = e.target.closest('[data-act="goto"]'); if (!b) return;
+  const d = b.dataset.date, fid = b.dataset.fid; if (!d || !fid) return;
+  state.date = dateKeyOf(d); state.expanded.add(fid); state.nextOnly = false; document.getElementById("nextOnly").checked = false;
+  renderChips(); sync.setDates(datesOfInterest()); renderAll();
+  const row = document.querySelector(`.frow[data-fid="${CSS.escape(fid)}"]`); if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 function renderAll() {
   const now = manilaNow();
