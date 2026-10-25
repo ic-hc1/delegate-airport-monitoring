@@ -40,4 +40,6 @@ assert fl.plan("CRK", dt.datetime(2026, 10, 25, 7, 0, tzinfo=fl.MANILA), sched, 
 assert fl.plan("CRK", now, sched, None)[0] is None
 assert fl.plan("MNL", dt.datetime(2026, 10, 25, 23, 0, tzinfo=fl.MANILA), sched, None)[0] is None
 assert fl.simple_status("Expected", "10:35", "10:40") == "scheduled"
+assert fl.norm_flight("BR 0271") == "BR271" and fl.norm_flight("EY0440") == "EY440" and fl.norm_flight("5103") == "5103" and fl.norm_flight("5J5055") == "5J5055" and fl.norm_flight("PR224A") == "PR224A"
+assert fl.airline_code("5J5055") == "5J" and fl.airline_code("Z2222") == "Z2" and fl.airline_code("5103") == ""
 print("fetch_live checks passed")

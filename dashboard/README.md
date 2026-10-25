@@ -45,3 +45,23 @@ against the real service.
 
 Each GitHub Pages deploy after a poll takes about a minute, and the Pages
 cache can add up to ten minutes, so the badge shows how old the data is.
+
+## Rebookings (flight changes after the export)
+
+When a delegate's flight changes, the board does not need a rebuild. A shared
+record `delegates/<code>` in Firestore with `moved: true` and an `override`
+block (`d`, `t`, `fl`, `checkin`, `note`, `ticket`, plus the old `oldD`,
+`oldT`, `oldFl`) moves that delegate to the new date, time and flight on every
+device within seconds. The delegate row shows "Rebooked" with the old flight and
+the note; the flight row shows "N rebooked". A rebooking with no date yet lands
+in the needs-checking list with its note. Deleting the record restores the
+original. The delegate code is the sheet's Delegate ID without the `G-` prefix
+and hyphens.
+
+## NAIA terminals
+
+Each MNL flight row shows its terminal after the airport code: `T3` when it
+comes from the live feed for that flight, `T3?` when it is the terminal this
+flight number used on another day or the airline's usual terminal (learned from
+the feed as it runs; seeded from arrivals seen on 23 Oct 2026). The "NAIA
+terminal" tile totals delegates per terminal for the selected view.

@@ -224,6 +224,12 @@ table.plain td.r, table.plain th.r { text-align: right; }
 .liveat.stale::before { background: var(--warn); }
 .liveat[hidden] { display: none; }
 
+.flag.chg { background: var(--warn-soft); border-color: transparent; font-weight: 600; }
+.chg-line { font-size: 11px; color: var(--warn-ink); font-weight: 500; margin-top: 2px; }
+.term { font-weight: 600; color: var(--fg); }
+.term.airline, .term.flight { color: var(--fg-2); }
+.tile .v.small { font-size: 18px; line-height: 1.5; font-family: var(--body); font-weight: 500; }
+
 /* ---- unlock screen ---- */
 .lock { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: grid; place-items: center; padding: 16px; overflow: auto; }
 .lock[hidden] { display: none; }
@@ -372,13 +378,39 @@ function hShort(h) { return HOTELS[h] ? HOTELS[h].short : h; }
 
 /* ---------- data buckets ---------- */
 const now0 = manilaNow();
-const clean = ROWS.filter(r => r.q.length === 0);
-const flagged = ROWS.filter(r => r.q.length > 0);
-const byDate = new Map();
-for (const r of clean) { if (!byDate.has(r.d)) byDate.set(r.d, []); byDate.get(r.d).push(r); }
-const allDates = [...byDate.keys()].sort();
-const earlyDates = allDates.filter(d => d < CORE_DAYS[0]);
-const lateDates = allDates.filter(d => d > CORE_DAYS[CORE_DAYS.length - 1]);
+function canon(fl) { if (!fl) return ""; const s = String(fl).replace(/\s+/g, "").toUpperCase(); const m = s.match(/^([A-Z][A-Z0-9]|[0-9][A-Z])([A-Z]?)0*(\d+)([A-Z]?)$/); return m ? m[1] + m[2] + m[3] + m[4] : s; }
+function pathSafe(s) { return s.replace(/[^A-Za-z0-9_\-.~:@+]/g, "-"); }
+function requalify(r) {
+  r.q = []; if (!r.d) r.q.push("nodate"); else if (r.d < DATA.window[0] || r.d > DATA.window[1]) r.q.push("odddate");
+  if (!r.fl) r.q.push("noflight");
+  r.fid = r.fl ? pathSafe(`${r.d || "nodate"}_${canon(r.fl)}`) : `${r.d || "nodate"}_NOFLIGHT-${(r.t || "").replace(":", "") || "xx"}`;
+}
+let clean, flagged, byDate, allDates, earlyDates, lateDates;
+function indexRows() {
+  for (const r of ROWS) requalify(r);
+  clean = ROWS.filter(r => !r.q.includes("nodate") && !r.q.includes("odddate"));   // no-flight rows with a date still show on the board
+  flagged = ROWS.filter(r => r.q.length > 0);
+  byDate = new Map();
+  for (const r of clean) { if (!byDate.has(r.d)) byDate.set(r.d, []); byDate.get(r.d).push(r); }
+  allDates = [...byDate.keys()].sort();
+  earlyDates = allDates.filter(d => d < CORE_DAYS[0]);
+  lateDates = allDates.filter(d => d > CORE_DAYS[CORE_DAYS.length - 1]);
+}
+indexRows();
+/* Rebookings: shared records (delegates/<code> with moved:true and an override block) replace a delegate's date, time and flight. */
+const overrides = new Map();
+function applyOverride(code, ov) {
+  const r = ROWS.find(x => x.c === code); if (!r) return false;
+  if (!r.orig) r.orig = { d: r.d, t: r.t, fl: r.fl, fr: r.fr };
+  if (ov) { r.chg = ov; r.d = ov.d || null; r.t = ov.t || null; r.fl = ov.fl || null; r.fr = ov.fl || "unknown"; overrides.set(code, ov); }
+  else { Object.assign(r, r.orig); delete r.chg; overrides.delete(code); }
+  return true;
+}
+function applyOverrides(list) {
+  let n = 0; for (const [code, ov] of list) if (applyOverride(code, ov)) n++;
+  if (n) { indexRows(); renderChips(); renderAll(); }
+  return n;
+}
 
 /* ---------- state ---------- */
 const state = {
@@ -404,14 +436,14 @@ function flightsOf(rows) {
   const m = new Map();
   for (const r of rows) {
     let f = m.get(r.fid);
-    if (!f) { f = { fid: r.fid, fl: r.fl, date: r.d, rows: [], times: new Map(), airlines: new Map(), airports: new Set(), hotels: new Map(), langs: new Map(), minors: 0, sfts: 0, contacts: 0 }; m.set(r.fid, f); }
+    if (!f) { f = { fid: r.fid, fl: r.fl || "NOFLIGHT", date: r.d, rows: [], times: new Map(), airlines: new Map(), airports: new Set(), hotels: new Map(), langs: new Map(), minors: 0, sfts: 0, contacts: 0, chg: 0 }; m.set(r.fid, f); }
     f.rows.push(r);
     f.times.set(r.t, (f.times.get(r.t) || 0) + 1);
     if (r.al) f.airlines.set(r.al, (f.airlines.get(r.al) || 0) + 1);
     if (r.ap) f.airports.add(r.ap);
     f.hotels.set(r.h, (f.hotels.get(r.h) || 0) + 1);
     if (r.l) f.langs.set(r.l, (f.langs.get(r.l) || 0) + 1);
-    if (r.m) f.minors++; if (r.f) f.sfts++; if (r.gc) f.contacts++;
+    if (r.m) f.minors++; if (r.f) f.sfts++; if (r.gc) f.contacts++; if (r.chg) f.chg++;
   }
   for (const f of m.values()) {
     f.time = [...f.times.entries()].sort((a, b) => b[1] - a[1] || (a[0] || "").localeCompare(b[0] || ""))[0][0];
@@ -474,7 +506,7 @@ function renderTiles(rows, flights) {
     ["Minors", minors, "under 18, travelling with group", ""],
     ["SFTS", sfts, "special rooming assigned", ""],
   ];
-  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`).join("");
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`).join("") + terminalTile(flights);
 }
 
 /* ---------- render: chart ---------- */
@@ -517,8 +549,38 @@ function renderChart(rows, now) {
 /* ---------- live status ---------- */
 function shiftDay(d, n) { const [y, m, dd] = d.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1, dd + n)); return x.toISOString().slice(0, 10); }
 function liveFor(f) {
-  const L = state.live.flights || {}; if (f.fl === "NOFLIGHT") return null;
-  return L[f.fid] || L[`${shiftDay(f.date, 1)}_${f.fl}`] || L[`${shiftDay(f.date, -1)}_${f.fl}`] || null;
+  const L = state.live.flights || {}; if (!f.fl || f.fl === "NOFLIGHT") return null; const c = canon(f.fl);
+  return L[`${f.date}_${c}`] || L[f.fid] || L[`${shiftDay(f.date, 1)}_${c}`] || L[`${shiftDay(f.date, -1)}_${c}`] || null;
+}
+/* NAIA terminals: from the live record when there is one, else the terminal this flight number used on other days,
+   else the airline's usual terminal (learned from the feed; seeded from arrivals observed on 23 Oct 2026). */
+const SEED_TERMINALS = { "5J": "3", "7C": "3", "AI": "1", "AK": "1", "BI": "3", "BR": "1", "CI": "1", "CX": "3", "CZ": "3", "EK": "3", "ET": "3", "EY": "3", "GF": "3", "GK": "3", "JL": "3", "KE": "1", "KL": "3", "KU": "1", "MF": "1", "MH": "1", "NH": "3", "OZ": "1", "PX": "1", "QF": "3", "QR": "3", "RX": "3", "SQ": "3", "SV": "1", "TG": "3", "TK": "3", "TR": "3", "UA": "3", "UO": "3", "WY": "1" };
+function airlineCode(fl) { const m = canon(fl).match(/^([A-Z][A-Z0-9]|[0-9][A-Z])/); return m ? m[1] : ""; }
+function usualTerminal(f) {
+  if (!f.fl || f.fl === "NOFLIGHT" || (f.airports.size && !f.airports.has("MNL"))) return null;
+  const T = state.live.terminals || {}; const c = canon(f.fl);
+  if (T.byFlight && T.byFlight[c]) return { t: T.byFlight[c], src: "flight" };
+  const code = airlineCode(c); const ba = (T.byAirline && T.byAirline[code]) || SEED_TERMINALS[code];
+  if (ba) { const t = typeof ba === "string" ? ba : Object.entries(ba).sort((a, b) => b[1] - a[1])[0][0]; return { t, src: "airline" }; }
+  return null;
+}
+function terminalOf(f) { const l = liveFor(f); if (l && l.term) return { t: l.term, src: "live" }; return usualTerminal(f); }
+function termHtml(f) {
+  const T = terminalOf(f); if (!T) return "";
+  const why = { live: "Terminal from the live feed", flight: "Terminal this flight number used on other days", airline: "This airline's usual NAIA terminal; confirm on the day" }[T.src];
+  return ` · <span class="term ${T.src}" title="${why}">T${esc(T.t)}${T.src === "live" ? "" : "?"}</span>`;
+}
+function terminalTile(flights) {
+  const tc = {}; for (const f of flights) { if (f.airports.size && !f.airports.has("MNL")) continue; const T = terminalOf(f); const k = T ? "T" + T.t : "T?"; tc[k] = (tc[k] || 0) + f.rows.length; }
+  const parts = Object.keys(tc).sort().map(k => `${k} <b class="num">${tc[k]}</b>`).join(" · ");
+  return `<div class="tile"><div class="k">NAIA terminal</div><div class="v small">${parts || "—"}</div><div class="s">delegates per terminal, live or usual</div></div>`;
+}
+function chgHtml(r) {
+  if (!r.chg) return ""; const o = r.orig || {}; const c = r.chg; const parts = [];
+  parts.push(`was ${o.fl ? canon(o.fl) : "no flight"} ${fmtDate(o.d)}${o.t ? " " + o.t : ""}`);
+  if (c.checkin) parts.push(`${esc(c.checkin).toLowerCase()} hotel check-in`);
+  if (c.note) parts.push(esc(c.note));
+  return `<div class="chg-line">Rebooked${c.ticket ? " #" + esc(c.ticket) : ""} · ${parts.join(" · ")}</div>`;
 }
 function liveHtml(f) {
   const l = liveFor(f); if (!l) return "";
@@ -553,7 +615,7 @@ function flightHtml(f, now) {
   const cls = ["frow", f.status, isNowWindow(f, now) ? "now" : ""].join(" ");
   const hotels = [...f.hotels.entries()].sort((a, b) => b[1] - a[1]).map(([h, n]) => `<span class="hc">${esc(hShort(h))} <b class="num">${n}</b></span>`).join("");
   const langs = [...f.langs.entries()].filter(([l]) => !/^English$/.test(l)).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, n]) => `<span class="flag lang">${esc(l)} ×${n}</span>`).join("");
-  const flags = [f.minors ? `<span class="flag minor">${f.minors} minor${f.minors > 1 ? "s" : ""}</span>` : "", f.sfts ? `<span class="flag sfts">${f.sfts} SFTS</span>` : "", f.times.size > 1 ? `<span class="flag times" title="${esc([...f.times.keys()].join(", "))}">${f.times.size} times listed</span>` : "", langs].join("");
+  const flags = [f.chg ? `<span class="flag chg">${f.chg} rebooked</span>` : "", f.minors ? `<span class="flag minor">${f.minors} minor${f.minors > 1 ? "s" : ""}</span>` : "", f.sfts ? `<span class="flag sfts">${f.sfts} SFTS</span>` : "", f.times.size > 1 ? `<span class="flag times" title="${esc([...f.times.keys()].join(", "))}">${f.times.size} times listed</span>` : "", langs].join("");
   const pct = f.rows.length ? Math.round(f.met / f.rows.length * 100) : 0;
   const dis = state.readOnly ? "disabled" : "";
   const dateNote = state.date === "EARLY" || state.date === "LATE" ? `<small>${esc(fmtDate(f.date))}</small>` : `<small>${f.rows.length === 1 ? "" : f.times.size > 1 ? "most listed" : "listed"}</small>`;
@@ -562,7 +624,7 @@ function flightHtml(f, now) {
     <div class="fhead">
       <div class="ftime num">${esc(f.time || "--:--")}${dateNote}</div>
       <div class="fno">${esc(f.fl === "NOFLIGHT" ? "—" : f.fl)}<small>${f.fl === "NOFLIGHT" ? "no flight listed" : esc(f.rows[0].fr !== f.fl ? "as listed: " + f.rows[0].fr : "flight")}</small></div>
-      <div class="fair"><span class="ap">${esc(ap)}</span>${esc(f.airline)}${f.airlines.size > 1 ? ` <span class="by">+${f.airlines.size - 1} more listed</span>` : ""}${liveHtml(f)}</div>
+      <div class="fair"><span class="ap">${esc(ap)}${termHtml(f)}</span>${esc(f.airline)}${f.airlines.size > 1 ? ` <span class="by">+${f.airlines.size - 1} more listed</span>` : ""}${liveHtml(f)}</div>
       <div class="fpax num">${f.rows.length}<small>pax</small></div>
       <div class="hchips">${hotels}</div>
       <div class="flags">${flags}</div>
@@ -582,7 +644,7 @@ function delegateRows(rows, opts = {}) {
     const d = state.delDocs.get(r.c) || {};
     return `<tr class="${d.met ? "met" : ""}" data-code="${esc(r.c)}">
       <td class="chk"><input type="checkbox" data-act="met" aria-label="Met ${esc(r.n)}" ${d.met ? "checked" : ""} ${dis}></td>
-      <td class="name">${esc(r.n)}${r.gc ? '<span class="star" title="Group contact">★</span>' : ""}${r.m ? `<span class="badge minor">minor · ${r.a}</span>` : ""}${r.f ? `<span class="badge sfts">${esc(r.r || "SFTS")}</span>` : ""}</td>
+      <td class="name">${esc(r.n)}${r.gc ? '<span class="star" title="Group contact">★</span>' : ""}${r.m ? `<span class="badge minor">minor · ${r.a}</span>` : ""}${r.f ? `<span class="badge sfts">${esc(r.r || "SFTS")}</span>` : ""}${chgHtml(r)}</td>
       ${opts.flight ? `<td class="num">${esc(fmtDate(r.d))} ${esc(r.t || "")}<br><span class="by">${esc(r.fl === "NOFLIGHT" || !r.fl ? "no flight" : r.fl)} · ${esc(r.ap || "")}</span></td>` : ""}
       <td>${esc(hShort(r.h))}</td>
       <td>${esc(r.b || "")}</td>
@@ -663,7 +725,7 @@ function renderNeedsChecking() {
   document.getElementById("ncList").innerHTML = rows.length ? rows.map(r => {
     const w = why[r.q[0]];
     const detail = [r.d ? fmtDate(r.d) + (r.d.slice(0, 4) !== "2026" || !/^2026-10/.test(r.d) ? " (" + r.d + ")" : "") : "no date", r.t, r.fr ? "flight " + r.fr : "no flight", r.ap, "check-in " + fmtDate(r.ci), r.gp ? r.gp + " gap nights" : ""].filter(Boolean).join(" · ");
-    return `<li><span class="why ${w[1]}">${w[0]}</span><span><b>${esc(r.n)}</b> · ${esc(hShort(r.h))} · ${esc(r.b || "")}<br><span class="d">${esc(detail)}</span></span></li>`;
+    return `<li><span class="why ${w[1]}">${w[0]}</span><span><b>${esc(r.n)}</b> · ${esc(hShort(r.h))} · ${esc(r.b || "")}<br><span class="d">${esc(detail)}</span>${r.chg ? `<br><span class="chg-line">Rebooked${r.chg.ticket ? " #" + esc(r.chg.ticket) : ""} · ${esc(r.chg.note || "new flight details pending")}</span>` : ""}</span></li>`;
   }).join("") : `<li class="empty">Nothing to check for this hotel.</li>`;
   document.getElementById("ncSub").textContent = `${rows.length} rows from the master lists that the airport team cannot schedule as-is`;
 }
@@ -787,6 +849,11 @@ function firebaseAdapter(cfg) {
       await auth.signInAnonymously(auth.getAuth(app));
       fs.onSnapshot(fs.collection(db, "flights"), snap => { const m = new Map(state.flightDocs); for (const ch of snap.docChanges()) { if (ch.type === "removed") m.delete(ch.doc.id); else m.set(ch.doc.id, ch.doc.data()); } applyFlightDocs(m); },
         e => { console.error(e); if (e.code === "permission-denied") setReadOnly("The shared store refused to load. Check the Firestore rules allow signed-in volunteers to read."); });
+      fs.onSnapshot(fs.query(fs.collection(db, "delegates"), fs.where("moved", "==", true)), snap => {
+        const list = snap.docChanges().map(ch => [ch.doc.id, ch.type === "removed" ? null : ((ch.doc.data() || {}).override || null)]);
+        for (const ch of snap.docChanges()) if (ch.type !== "removed") state.delDocs.set(ch.doc.id, ch.doc.data());
+        applyOverrides(list);
+      }, e => console.error(e));
       await subscribeDelegates(dates);
       setSync("live", "Live · shared"); notice("");
     },
@@ -822,6 +889,7 @@ async function boot() {
   catch (e) { console.error(e); setSync("off", "Shared sync failed"); notice("Could not connect to the shared store (" + (e.code || e.message || "unknown error") + "). Updates you make now stay on this device only."); const fallback = localAdapter(); Object.assign(sync, fallback); await sync.start(); }
 }
 document.getElementById("foot").innerHTML = `Source: eleven Hotel Delegates Master Lists (export Delegates-2026-10-21.csv, generated ${esc(DATA.generated)}), ${ROWS.length} active delegates across ${Object.keys(HOTELS).length} hotels; ${DATA.cancelled} cancelled rows excluded. Times are as listed in the hotel lists (local Manila time). Where one flight number carries several listed times on the same day, the board shows the most common one and flags the rest. Live flight status, where shown, comes from a public flight-data feed polled a few times an hour and is a guide only; the status a volunteer sets by hand always stands. The hotel lists themselves are not updated from here.`;
+window.arrivalsDebug = { applyOverrides, canon, terminalOf, state };
 boot();
 }
 </script>

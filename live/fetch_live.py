@@ -33,7 +33,14 @@ LOOKBACK = dt.timedelta(minutes=60)       # catch flights that just landed
 WINDOW = dt.timedelta(hours=11, minutes=55)   # AeroDataBox allows at most 12 h per call
 
 def norm_flight(s):
-    return re.sub(r"\s+", "", str(s or "")).upper()
+    """Canonical flight number: no spaces, upper case, no leading zeros in the number (BR 0271 -> BR271)."""
+    s = re.sub(r"\s+", "", str(s or "")).upper()
+    m = re.match(r"^([A-Z][A-Z0-9]|[0-9][A-Z])([A-Z]?)0*(\d+)([A-Z]?)$", s)
+    return f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}" if m else s
+
+def airline_code(fl):
+    m = re.match(r"^([A-Z][A-Z0-9]|[0-9][A-Z])", fl or "")
+    return m.group(1) if m else ""
 
 def hm(local_str):
     """'2026-10-25 05:30+08:00' or ISO -> ('2026-10-25', '05:30') in Manila time."""
@@ -226,9 +233,15 @@ def main():
             continue
         spent += cost
         live["calls"][airport] = {"at": now.isoformat(), "found": len(found), "units": cost, "window": [start.strftime("%H:%M"), (start + WINDOW).strftime("%H:%M")]}
+        terms = live.setdefault("terminals", {"byFlight": {}, "byAirline": {}})
         for k, v in found.items():
             v["at"] = now.isoformat(); v["ap"] = airport
             live["flights"][k] = v
+            if airport == "MNL" and v.get("term"):      # remember which NAIA terminal each flight number and airline uses
+                fl = k.split("_", 1)[1]
+                terms["byFlight"][fl] = v["term"]
+                al = airline_code(fl)
+                if al: terms["byAirline"].setdefault(al, {})[v["term"]] = terms["byAirline"].setdefault(al, {}).get(v["term"], 0) + 1
     # prune records more than 36 h past their scheduled date
     cutoff = (now - dt.timedelta(hours=36)).strftime("%Y-%m-%d")
     live["flights"] = {k: v for k, v in live["flights"].items() if k[:10] >= cutoff}
