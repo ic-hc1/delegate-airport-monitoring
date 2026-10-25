@@ -296,7 +296,7 @@ table.plain td.r, table.plain th.r { text-align: right; }
 
   <section class="panel">
     <div class="panel-h"><h2>Arrivals by hour</h2><span class="sub" id="chartSub"></span>
-      <div class="right legend"><span><i style="background:var(--series-1-soft)"></i>Expected</span><span><i style="background:var(--series-1)"></i>Met at airport</span></div></div>
+      </div>
     <div class="chart" id="chart"></div>
   </section>
 
@@ -382,13 +382,14 @@ function canon(fl) { if (!fl) return ""; const s = String(fl).replace(/\s+/g, ""
 function pathSafe(s) { return s.replace(/[^A-Za-z0-9_\-.~:@+]/g, "-"); }
 function requalify(r) {
   r.q = []; if (!r.d) r.q.push("nodate"); else if (r.d < DATA.window[0] || r.d > DATA.window[1]) r.q.push("odddate");
+  if (r.mode && r.mode !== "Plane") r.q.push("notplane");
   if (!r.fl) r.q.push("noflight");
   r.fid = r.fl ? pathSafe(`${r.d || "nodate"}_${canon(r.fl)}`) : `${r.d || "nodate"}_NOFLIGHT-${(r.t || "").replace(":", "") || "xx"}`;
 }
 let clean, flagged, byDate, allDates, earlyDates, lateDates;
 function indexRows() {
   for (const r of ROWS) requalify(r);
-  clean = ROWS.filter(r => !r.q.includes("nodate") && !r.q.includes("odddate"));   // no-flight rows with a date still show on the board
+  clean = ROWS.filter(r => !r.q.includes("nodate") && !r.q.includes("odddate") && !r.q.includes("notplane"));   // no-flight rows with a date still show on the board
   flagged = ROWS.filter(r => r.q.length > 0);
   byDate = new Map();
   for (const r of clean) { if (!byDate.has(r.d)) byDate.set(r.d, []); byDate.get(r.d).push(r); }
@@ -450,7 +451,6 @@ function flightsOf(rows) {
     f.airline = [...f.airlines.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0])[0] || "Airline not listed";
     f.doc = state.flightDocs.get(f.fid) || {};
     f.status = f.doc.status || "scheduled";
-    f.met = f.rows.filter(r => state.delDocs.get(r.c)?.met).length;
   }
   return [...m.values()].sort((a, b) => (toMin(a.time) ?? 9e9) - (toMin(b.time) ?? 9e9) || a.fl.localeCompare(b.fl));
 }
@@ -492,27 +492,26 @@ document.getElementById("collapseAll").addEventListener("click", () => { state.e
 
 /* ---------- render: tiles ---------- */
 function renderTiles(rows, flights) {
-  const met = rows.filter(r => state.delDocs.get(r.c)?.met).length;
+  const rebooked = rows.filter(r => r.chg).length;
   const landed = flights.filter(f => f.status === "landed" || f.status === "done").length;
   const liveLanded = flights.filter(f => (liveFor(f) || {}).st === "landed").length, liveAny = flights.some(f => liveFor(f));
   const minors = rows.filter(r => r.m).length, sfts = rows.filter(r => r.f).length, contacts = rows.filter(r => r.gc).length;
   const groups = new Set(rows.map(r => r.g)).size;
   const tiles = [
     ["Expected", rows.length, "delegates in view", ""],
-    ["Met at airport", met, rows.length ? Math.round(met / rows.length * 100) + "% of expected" : "", "good"],
-    ["Still to meet", rows.length - met, "", "pend"],
+    ["Rebooked", rebooked, "flight changes applied", rebooked ? "pend" : ""],
     ["Flights", flights.length, liveAny ? `${liveLanded} landed per live feed · ${landed} marked` : `${landed} landed or completed`, ""],
     ["Groups", groups, `${contacts} group contacts`, ""],
     ["Minors", minors, "under 18, travelling with group", ""],
     ["SFTS", sfts, "special rooming assigned", ""],
   ];
-  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`).join("") + terminalTile(flights);
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`).join("");
 }
 
 /* ---------- render: chart ---------- */
 function renderChart(rows, now) {
-  const exp = new Array(24).fill(0), met = new Array(24).fill(0);
-  for (const r of rows) { const h = r.t ? +r.t.slice(0, 2) % 24 : null; if (h == null) continue; exp[h]++; if (state.delDocs.get(r.c)?.met) met[h]++; }
+  const exp = new Array(24).fill(0);
+  for (const r of rows) { const h = r.t ? +r.t.slice(0, 2) % 24 : null; if (h == null) continue; exp[h]++; }
   const max = Math.max(1, ...exp);
   const W = 1000, H = 220, padL = 36, padR = 8, padT = 12, padB = 26, cw = (W - padL - padR) / 24, bw = cw - 4;
   const y = v => padT + (H - padT - padB) * (1 - v / max);
@@ -525,8 +524,7 @@ function renderChart(rows, now) {
     const x = padL + h * cw + 2;
     if (h === curH) g += `<rect x="${padL + h * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="var(--now)"/>`;
     if (exp[h]) {
-      g += `<rect class="bar-e" data-h="${h}" x="${x}" y="${y(exp[h])}" width="${bw}" height="${y(0) - y(exp[h])}" rx="3" fill="var(--series-1-soft)"/>`;
-      if (met[h]) g += `<rect data-h="${h}" x="${x}" y="${y(met[h])}" width="${bw}" height="${y(0) - y(met[h])}" rx="3" fill="var(--series-1)"/>`;
+      g += `<rect class="bar-e" data-h="${h}" x="${x}" y="${y(exp[h])}" width="${bw}" height="${y(0) - y(exp[h])}" rx="3" fill="var(--series-1)"/>`;
       g += `<rect data-h="${h}" x="${padL + h * cw}" y="${padT}" width="${cw}" height="${H - padT - padB}" fill="transparent"/>`;
     }
     if (h % 3 === 0) g += `<text x="${padL + h * cw + cw / 2}" y="${H - 8}" font-size="11" text-anchor="middle" fill="var(--muted)">${String(h).padStart(2, "0")}:00</text>`;
@@ -539,7 +537,7 @@ function renderChart(rows, now) {
     const t = e.target.closest("[data-h]"); if (!t) { tip.hidden = true; return; }
     const h = +t.dataset.h; const r = el.getBoundingClientRect(), s = svg.getBoundingClientRect();
     const sx = s.width / W; tip.hidden = false;
-    tip.textContent = `${String(h).padStart(2, "0")}:00–${String(h).padStart(2, "0")}:59 · ${exp[h]} expected · ${met[h]} met`;
+    tip.textContent = `${String(h).padStart(2, "0")}:00–${String(h).padStart(2, "0")}:59 · ${exp[h]} expected`;
     tip.style.left = (s.left - r.left + (padL + h * cw + cw / 2) * sx) + "px"; tip.style.top = (s.top - r.top + y(exp[h]) * sx) + "px";
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
@@ -616,7 +614,6 @@ function flightHtml(f, now) {
   const hotels = [...f.hotels.entries()].sort((a, b) => b[1] - a[1]).map(([h, n]) => `<span class="hc">${esc(hShort(h))} <b class="num">${n}</b></span>`).join("");
   const langs = [...f.langs.entries()].filter(([l]) => !/^English$/.test(l)).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, n]) => `<span class="flag lang">${esc(l)} ×${n}</span>`).join("");
   const flags = [f.chg ? `<span class="flag chg">${f.chg} rebooked</span>` : "", f.minors ? `<span class="flag minor">${f.minors} minor${f.minors > 1 ? "s" : ""}</span>` : "", f.sfts ? `<span class="flag sfts">${f.sfts} SFTS</span>` : "", f.times.size > 1 ? `<span class="flag times" title="${esc([...f.times.keys()].join(", "))}">${f.times.size} times listed</span>` : "", langs].join("");
-  const pct = f.rows.length ? Math.round(f.met / f.rows.length * 100) : 0;
   const dis = state.readOnly ? "disabled" : "";
   const dateNote = state.date === "EARLY" || state.date === "LATE" ? `<small>${esc(fmtDate(f.date))}</small>` : `<small>${f.rows.length === 1 ? "" : f.times.size > 1 ? "most listed" : "listed"}</small>`;
   const ap = [...f.airports].join("/") || "—";
@@ -630,8 +627,7 @@ function flightHtml(f, now) {
       <div class="flags">${flags}</div>
       <div class="fstat">
         <select aria-label="Flight status" data-act="status" ${dis}>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${f.status === k ? "selected" : ""}>${v}</option>`).join("")}</select>
-        <div class="prog"><i style="width:${pct}%"></i></div>
-        <div class="prog-l num">${f.met}/${f.rows.length} met${f.doc.by ? ` · <span class="by">by ${esc(f.doc.by)}</span>` : ""}</div>
+        <div class="prog-l">${f.doc.by ? `<span class="by">status by ${esc(f.doc.by)}</span>` : ""}</div>
       </div>
       <button type="button" class="fx" data-act="toggle" aria-label="${state.expanded.has(f.fid) ? "Collapse" : "Expand"} delegate list">${state.expanded.has(f.fid) ? "–" : "+"}</button>
     </div>
@@ -642,8 +638,7 @@ function delegateRows(rows, opts = {}) {
   const dis = state.readOnly ? "disabled" : "";
   return rows.map(r => {
     const d = state.delDocs.get(r.c) || {};
-    return `<tr class="${d.met ? "met" : ""}" data-code="${esc(r.c)}">
-      <td class="chk"><input type="checkbox" data-act="met" aria-label="Met ${esc(r.n)}" ${d.met ? "checked" : ""} ${dis}></td>
+    return `<tr data-code="${esc(r.c)}">
       <td class="name">${esc(r.n)}${r.gc ? '<span class="star" title="Group contact">★</span>' : ""}${r.m ? `<span class="badge minor">minor · ${r.a}</span>` : ""}${r.f ? `<span class="badge sfts">${esc(r.r || "SFTS")}</span>` : ""}${chgHtml(r)}</td>
       ${opts.flight ? `<td class="num">${esc(fmtDate(r.d))} ${esc(r.t || "")}<br><span class="by">${esc(r.fl === "NOFLIGHT" || !r.fl ? "no flight" : r.fl)} · ${esc(r.ap || "")}</span></td>` : ""}
       <td>${esc(hShort(r.h))}</td>
@@ -660,18 +655,15 @@ function flightBody(f) {
   for (const r of f.rows) { if (!groups.has(r.g)) groups.set(r.g, []); groups.get(r.g).push(r); }
   const gl = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || a[1][0].n.localeCompare(b[1][0].n));
   const dis = state.readOnly ? "disabled" : "";
-  const allMet = f.met === f.rows.length;
   return `<div class="fbody">
     <div class="fbody-tools">
-      <button type="button" class="btn primary" data-act="metall" ${dis || allMet ? "disabled" : ""}>Mark all ${f.rows.length} met</button>
-      <button type="button" class="btn" data-act="metnone" ${dis || f.met === 0 ? "disabled" : ""}>Clear met</button>
       <input type="text" data-act="fnote" placeholder="Flight note (gate, delay, meeting point…)" value="${esc(f.doc.note || "")}" aria-label="Flight note" ${dis}>
     </div>
     ${gl.map(([g, rows]) => {
       const c = rows.find(r => r.gc);
       const hs = [...new Set(rows.map(r => hShort(r.h)))].join(", ");
       return `<div class="grp"><div class="grp-h"><b>${rows.length === 1 ? "Solo" : "Group of " + rows.length}</b><span class="gcode">${esc(g)}</span>${c ? `<span>contact: <b>${esc(c.n)}</b></span>` : `<span>no contact flagged</span>`}<span>${esc(hs)}</span></div>
-      <div class="tbl-wrap"><table class="del"><thead><tr><th>Met</th><th>Name</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Time</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(rows, { showTime: true })}</tbody></table></div></div>`;
+      <div class="tbl-wrap"><table class="del"><thead><tr><th>Name</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Time</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(rows, { showTime: true })}</tbody></table></div></div>`;
     }).join("")}
   </div>`;
 }
@@ -689,42 +681,38 @@ document.getElementById("board").addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
   const row = e.target.closest(".frow"); const fid = row?.dataset.fid;
   if (b.dataset.act === "toggle") { state.expanded.has(fid) ? state.expanded.delete(fid) : state.expanded.add(fid); renderBoard(); }
-  if (b.dataset.act === "metall") markFlight(fid, true);
-  if (b.dataset.act === "metnone") markFlight(fid, false);
 });
 document.getElementById("board").addEventListener("change", e => {
   const t = e.target; const act = t.dataset.act; if (!act) return;
   const fid = t.closest(".frow")?.dataset.fid; const code = t.closest("tr")?.dataset.code;
   if (act === "status") writeFlight(fid, { status: t.value });
   if (act === "fnote") writeFlight(fid, { note: t.value.trim() });
-  if (act === "met") writeDelegate(code, { met: t.checked });
   if (act === "note") writeDelegate(code, { note: t.value.trim() });
 });
 document.getElementById("searchBody").addEventListener("change", e => {
   const t = e.target; const code = t.closest("tr")?.dataset.code; if (!code) return;
-  if (t.dataset.act === "met") writeDelegate(code, { met: t.checked });
   if (t.dataset.act === "note") writeDelegate(code, { note: t.value.trim() });
 });
 
 /* ---------- render: hotel dispatch ---------- */
 function renderHotels(rows) {
   const m = new Map();
-  for (const r of rows) { let h = m.get(r.h); if (!h) { h = { n: 0, met: 0, minors: 0, next: null }; m.set(r.h, h); } h.n++; if (state.delDocs.get(r.c)?.met) h.met++; if (r.m) h.minors++; }
+  for (const r of rows) { let h = m.get(r.h); if (!h) { h = { n: 0, minors: 0, chg: 0, flights: new Set() }; m.set(r.h, h); } h.n++; if (r.m) h.minors++; if (r.chg) h.chg++; h.flights.add(r.fid); }
   const list = [...m.entries()].sort((a, b) => b[1].n - a[1].n);
-  const tot = rows.length, totMet = rows.filter(r => state.delDocs.get(r.c)?.met).length;
-  document.getElementById("hotelTbl").innerHTML = `<thead><tr><th>Hotel</th><th class="r">Expected</th><th class="r">Met</th><th class="r">Remaining</th><th>Progress</th></tr></thead><tbody>` +
-    list.map(([h, v]) => `<tr><td>${esc(HOTELS[h].name)}</td><td class="r num">${v.n}</td><td class="r num">${v.met}</td><td class="r num">${v.n - v.met}</td><td><div class="bar"><i style="width:${v.n ? v.met / v.n * 100 : 0}%"></i></div></td></tr>`).join("") +
-    `<tr><td><b>Total</b></td><td class="r num"><b>${tot}</b></td><td class="r num"><b>${totMet}</b></td><td class="r num"><b>${tot - totMet}</b></td><td></td></tr></tbody>`;
+  const tot = rows.length;
+  document.getElementById("hotelTbl").innerHTML = `<thead><tr><th>Hotel</th><th class="r">Expected</th><th class="r">Flights</th><th class="r">Minors</th><th class="r">Rebooked</th></tr></thead><tbody>` +
+    list.map(([h, v]) => `<tr><td>${esc(HOTELS[h] ? HOTELS[h].name : h)}</td><td class="r num">${v.n}</td><td class="r num">${v.flights.size}</td><td class="r num">${v.minors}</td><td class="r num">${v.chg || ""}</td></tr>`).join("") +
+    `<tr><td><b>Total</b></td><td class="r num"><b>${tot}</b></td><td></td><td class="r num"><b>${rows.filter(r => r.m).length}</b></td><td class="r num"><b>${rows.filter(r => r.chg).length || ""}</b></td></tr></tbody>`;
   document.getElementById("hotelSub").textContent = "delegates per hotel for the selected date and filters";
 }
 
 /* ---------- render: needs checking ---------- */
 function renderNeedsChecking() {
   const rows = flagged.filter(r => state.hotel === "ALL" || r.h === state.hotel);
-  const why = { nodate: ["No arrival date", ""], noflight: ["No flight", ""], odddate: ["Date looks wrong", "odd"] };
+  const why = { nodate: ["No arrival date", ""], noflight: ["No flight", ""], odddate: ["Date looks wrong", "odd"], notplane: ["Not by plane", "odd"] };
   document.getElementById("ncList").innerHTML = rows.length ? rows.map(r => {
     const w = why[r.q[0]];
-    const detail = [r.d ? fmtDate(r.d) + (r.d.slice(0, 4) !== "2026" || !/^2026-10/.test(r.d) ? " (" + r.d + ")" : "") : "no date", r.t, r.fr ? "flight " + r.fr : "no flight", r.ap, "check-in " + fmtDate(r.ci), r.gp ? r.gp + " gap nights" : ""].filter(Boolean).join(" · ");
+    const detail = [r.mode && r.mode !== "Plane" ? "arrives by " + r.mode.toLowerCase() : "", r.d ? fmtDate(r.d) + (r.d.slice(0, 4) !== "2026" || !/^2026-10/.test(r.d) ? " (" + r.d + ")" : "") : "no date", r.t, r.fr ? "flight " + r.fr : "no flight", r.ap, "check-in " + fmtDate(r.ci), r.gp ? r.gp + " gap nights" : ""].filter(Boolean).join(" · ");
     return `<li><span class="why ${w[1]}">${w[0]}</span><span><b>${esc(r.n)}</b> · ${esc(hShort(r.h))} · ${esc(r.b || "")}<br><span class="d">${esc(detail)}</span>${r.chg ? `<br><span class="chg-line">Rebooked${r.chg.ticket ? " #" + esc(r.chg.ticket) : ""} · ${esc(r.chg.note || "new flight details pending")}</span>` : ""}</span></li>`;
   }).join("") : `<li class="empty">Nothing to check for this hotel.</li>`;
   document.getElementById("ncSub").textContent = `${rows.length} rows from the master lists that the airport team cannot schedule as-is`;
@@ -738,7 +726,7 @@ function renderSearch() {
   const hits = ROWS.filter(r => (r.n && r.n.toLowerCase().includes(q)) || (r.c && r.c.toLowerCase().includes(q)) || (r.g && r.g.toLowerCase().includes(q)) || (r.fl && r.fl.toLowerCase().includes(q.replace(/\s+/g, "")))).slice(0, 60);
   panel.hidden = false;
   document.getElementById("searchSub").textContent = hits.length === 60 ? "first 60 matches, all dates" : `${hits.length} match${hits.length === 1 ? "" : "es"}, all dates`;
-  document.getElementById("searchBody").innerHTML = hits.length ? `<table class="del"><thead><tr><th>Met</th><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`;
+  document.getElementById("searchBody").innerHTML = hits.length ? `<table class="del"><thead><tr><th>Name</th><th>Arrival</th><th>Hotel</th><th>Branch</th><th>Language</th><th>Group</th><th>Note</th><th></th></tr></thead><tbody>${delegateRows(hits, { flight: true })}</tbody></table>` : `<div class="empty">No delegate, code, group or flight matches “${esc(state.q)}”.</div>`;
   sync.fetchDelegates(hits.filter(r => !state.delDocs.has(r.c)).map(r => r.c));
 }
 
@@ -783,18 +771,9 @@ function delegateBody(code, patch) {
 function writeDelegate(code, patch) {
   if (state.readOnly || !code) return;
   const cur = state.delDocs.get(code) || {}; const next = delegateBody(code, patch);
-  if (!!cur.met === !!next.met && (cur.note || "") === (next.note || "")) return;
+  if ((cur.note || "") === (next.note || "")) return;
   state.delDocs.set(code, next); renderAll();
   queue("delegates/" + code, () => sync.writeDelegate(code, next));
-}
-async function markFlight(fid, met) {
-  if (state.readOnly) return;
-  const f = flightsOf(filterRows(dateKeyRows(state.date))).find(x => x.fid === fid); if (!f) return;
-  const todo = f.rows.filter(r => !!state.delDocs.get(r.c)?.met !== met);
-  for (const r of todo) state.delDocs.set(r.c, delegateBody(r.c, { met }));
-  renderAll();
-  let i = 0; const workers = Array.from({ length: 4 }, async () => { while (i < todo.length) { const r = todo[i++]; await queue("delegates/" + r.c, () => sync.writeDelegate(r.c, state.delDocs.get(r.c))); } });
-  await Promise.all(workers);
 }
 function applyFlightDocs(map) { state.flightDocs = map; renderAll(); }
 function applyDelegateDocs(changes) { for (const [id, data] of changes) { if (data) state.delDocs.set(id, data); else state.delDocs.delete(id); } renderAll(); }
@@ -810,7 +789,7 @@ function localAdapter() {
   return {
     mode: "local",
     async start() { push(); setSync("local", "This device only"); document.getElementById("exportBtn").hidden = false; document.getElementById("importBtn").hidden = false;
-      notice("Shared sync is not configured, so met checks and notes stay on this device. Use Export / Import to pass them to a coordinator, or add a Firebase config (see the README) to sync every volunteer live."); },
+      notice("Shared sync is not configured, so flight status and notes stay on this device. Use Export / Import to pass them to a coordinator, or add a Firebase config (see the README) to sync every volunteer live."); },
     setDates() {},
     async writeFlight(id, data) { store.flights[id] = data; save(store); },
     async writeDelegate(code, data) { store.delegates[code] = data; save(store); },

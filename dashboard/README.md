@@ -14,7 +14,7 @@ python3 -I build.py arrivals.html template.html /path/to/*_Hotel_Delegates_Maste
 ```
 
 Then republish `arrivals.html` to the same artifact URL. Shared tracking
-(flight status, met checks, notes) lives in the artifact's database and is
+(flight status, notes, rebookings) lives in the artifact's database and is
 keyed by delegate code, so it survives a rebuild.
 
 ## Live flight status (free plan)
@@ -63,5 +63,4 @@ and hyphens.
 Each MNL flight row shows its terminal after the airport code: `T3` when it
 comes from the live feed for that flight, `T3?` when it is the terminal this
 flight number used on another day or the airline's usual terminal (learned from
-the feed as it runs; seeded from arrivals seen on 23 Oct 2026). The "NAIA
-terminal" tile totals delegates per terminal for the selected view.
+the feed as it runs; seeded from arrivals seen on 23 Oct 2026).
