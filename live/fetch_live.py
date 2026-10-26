@@ -25,8 +25,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEDULE = ROOT / "docs" / "schedule.json"
 LIVE = ROOT / "docs" / "live.json"
 PROVIDER = os.environ.get("LIVE_PROVIDER", "aerodatabox").strip().lower()
-BUDGET = int(os.environ.get("LIVE_MONTHLY_UNITS", "400"))
-UNITS_PER_CALL = int(os.environ.get("LIVE_UNITS_PER_CALL", "2"))
+# Budget: AeroDataBox counts API units (Basic plan: 400/month, 2 per airport-board call).
+# AeroAPI charges per 15-result page, so there "units" are pages; LIVE_MONTHLY_UNITS = dollar budget / fee per page.
+BUDGET = int(os.environ.get("LIVE_MONTHLY_UNITS") or ("900" if PROVIDER == "aeroapi" else "400"))
+UNITS_PER_CALL = int(os.environ.get("LIVE_UNITS_PER_CALL") or ("8" if PROVIDER == "aeroapi" else "2"))   # for AeroAPI: the expected pages per poll, used only for the budget check
+AEROAPI_LOOKBACK, AEROAPI_AHEAD = dt.timedelta(hours=2), dt.timedelta(hours=3)   # AeroAPI is paid per page: ask only for what is due soon
+AEROAPI_MAX_PAGES = int(os.environ.get("AEROAPI_MAX_PAGES", "6"))
 AIRPORTS = [a.strip().upper() for a in os.environ.get("LIVE_AIRPORTS", "MNL,CRK").split(",") if a.strip()]
 FORCE, DRY = "--force" in sys.argv, "--dry-run" in sys.argv
 LOOKBACK = dt.timedelta(hours=5)          # refresh flights that landed since the previous poll, even when polls are hours apart
@@ -68,6 +72,7 @@ def simple_status(raw, sched_hm, est_hm):
     return "scheduled"
 
 # ---------------------------------------------------------------- providers
+DIAG = []
 def fetch_json(url, headers):
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -119,15 +124,20 @@ def normalize_aerodatabox(data):
     return out
 
 def aeroapi(airport, start, end):
+    """FlightAware AeroAPI v4: scheduled (not yet landed) and recent arrivals, each up to AEROAPI_MAX_PAGES pages of 15."""
     key = os.environ.get("AEROAPI_KEY", "")
     if not key: raise SystemExit("AEROAPI_KEY is not set")
+    now = dt.datetime.now(MANILA)
+    start, end = now - AEROAPI_LOOKBACK, now + AEROAPI_AHEAD
     iso = lambda d: d.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     pages, out = 0, {}
     for kind in ("scheduled_arrivals", "arrivals"):
-        url = f"https://aeroapi.flightaware.com/aeroapi/airports/{airport}/flights/{kind}?start={iso(start)}&end={iso(end)}&max_pages=12"
-        data, _ = fetch_json(url, {"x-apikey": key})
-        pages += int(data.get("num_pages") or 1)
+        url = (f"https://aeroapi.flightaware.com/aeroapi/airports/{airport}/flights/{kind}"
+               f"?start={urllib.parse.quote(iso(start))}&end={urllib.parse.quote(iso(end))}&max_pages={AEROAPI_MAX_PAGES}")
+        data, headers = fetch_json(url, {"x-apikey": key, "Accept": "application/json; charset=UTF-8"})
+        pages += max(1, int(data.get("num_pages") or 1))
         out.update(normalize_aeroapi(data.get(kind, []) or []))
+        DIAG.append(dict(describe_response(data, headers), endpoint=kind))
     return out, pages
 
 def normalize_aeroapi(flights):
@@ -139,14 +149,16 @@ def normalize_aeroapi(flights):
         _, act = hm(f.get("actual_on") or f.get("actual_in"))
         if not sd: continue
         raw = f.get("status") or ""
-        rec = {"st": simple_status(raw, st, est or act), "raw": raw, "sch": st, "est": est, "act": act,
+        if f.get("cancelled"): raw = "Cancelled"
+        elif f.get("diverted"): raw = "Diverted"
+        elif act: raw = raw or "Landed"
+        rec = {"st": "landed" if act and not f.get("cancelled") and not f.get("diverted") else simple_status(raw, st, est or act), "raw": raw, "sch": st, "est": est, "act": act,
                "term": str(f.get("terminal_destination") or ""), "gate": str(f.get("gate_destination") or ""), "belt": str(f.get("baggage_claim") or ""),
                "from": (f.get("origin") or {}).get("code_iata") or "", "al": f.get("operator_iata") or "", "cs": False}
         for i, n in enumerate(n for n in nums if n):
             out[f"{sd}_{n}"] = dict(rec, cs=i > 0)
     return out
 
-DIAG = []
 def describe_response(data, headers):
     """A compact description of what the provider sent, for the run log and live.json."""
     d = {"type": type(data).__name__}

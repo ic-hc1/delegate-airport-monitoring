@@ -24,12 +24,15 @@ assert out["2026-10-25_UA809"]["st"] == "delayed" and out["2026-10-25_UA809"]["e
 assert out["2026-10-25_OZ701"]["st"] == "cancelled"
 assert out["2026-10-25_NH5261"]["cs"] is True
 
-AERO = [{"ident_iata": "PR113", "codeshares_iata": ["QR4947"], "status": "Landed / Taxiing", "scheduled_in": "2026-10-24T21:30:00Z",
+AERO = [{"ident_iata": "PR113", "codeshares_iata": ["QR4947"], "status": "Landed / Taxiing", "scheduled_in": "2026-10-24T21:30:00Z", "cancelled": False, "diverted": False,
          "estimated_in": "2026-10-24T21:52:00Z", "actual_on": "2026-10-24T21:49:00Z", "terminal_destination": "1", "baggage_claim": "7",
          "origin": {"code_iata": "LAX"}, "operator_iata": "PR"}]
 out = fl.normalize_aeroapi(AERO)
 assert out["2026-10-25_PR113"]["st"] == "landed" and out["2026-10-25_PR113"]["sch"] == "05:30" and out["2026-10-25_PR113"]["act"] == "05:49", out
 assert out["2026-10-25_QR4947"]["cs"] is True
+out = fl.normalize_aeroapi([{"ident_iata": "KL807", "status": "Scheduled", "scheduled_in": "2026-10-23T10:45:00Z", "cancelled": True, "origin": {"code_iata": "AMS"}},
+                            {"ident_iata": "UA809", "status": "En Route / On Time", "scheduled_in": "2026-10-26T11:00:00Z", "estimated_in": "2026-10-26T11:20:00Z", "cancelled": False, "origin": {"code_iata": "GUM"}, "terminal_destination": "3"}])
+assert out["2026-10-23_KL807"]["st"] == "cancelled" and out["2026-10-26_UA809"]["st"] == "delayed" and out["2026-10-26_UA809"]["term"] == "3", out
 
 sched = [{"d": "2026-10-25", "fl": "PR113", "ap": "MNL", "t": "05:30", "n": 85}, {"d": "2026-10-25", "fl": "Q926", "ap": "CRK", "t": "09:00", "n": 1}]
 now = dt.datetime(2026, 10, 25, 4, 0, tzinfo=fl.MANILA)

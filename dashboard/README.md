@@ -39,9 +39,27 @@ Setup with the AeroDataBox free plan (via RapidAPI):
 3. Check the plan's monthly unit allowance and the unit cost of the *airport departures and arrivals (FIDS)* endpoint on the RapidAPI page. If they differ from 400 units and 2 units per call, add repository **variables** `LIVE_MONTHLY_UNITS` and `LIVE_UNITS_PER_CALL` with the right numbers. The job never spends past `LIVE_MONTHLY_UNITS`.
 4. Run the workflow once by hand (**Actions → Live flight status → Run workflow**) to confirm it commits `docs/live.json`.
 
-FlightAware AeroAPI is supported as an alternative (`LIVE_PROVIDER=aeroapi`,
-secret `AEROAPI_KEY`, units are result pages), but that path has not been run
-against the real service.
+### Switching to FlightAware AeroAPI
+
+AeroAPI tracks NAIA arrivals more completely than the free feed (fewer
+"Unknown" statuses on regional flights). It is paid per query: each
+airport-arrivals query returns pages of 15 flights and is charged per page,
+with the first $5 of usage each month free on the Personal tier.
+
+1. Sign up at <https://www.flightaware.com/aeroapi/signup/personal> (Personal, no monthly minimum; a card is required for usage past the free $5) and create an API key under **My Account → AeroAPI**.
+2. On FlightAware's AeroAPI pricing page, note the per-page fee for `/airports/{id}/flights/scheduled_arrivals` and `/airports/{id}/flights/arrivals`.
+3. In the repository, Settings → Secrets and variables → Actions:
+   - secret `AEROAPI_KEY` = the key;
+   - variable `LIVE_PROVIDER` = `aeroapi`;
+   - variable `LIVE_MONTHLY_UNITS` = the number of pages your budget allows (dollar budget ÷ fee per page; the default 900 is $4.50 at half a cent per page);
+   - optionally `AEROAPI_MAX_PAGES` (default 6) to cap pages per query.
+4. Run **Live flight status** by hand once and check the run log: it prints the response shape and page counts.
+
+With AeroAPI each poll asks only for arrivals from 2 hours back to 3 hours
+ahead, two queries per airport, so a poll is typically 4 to 8 pages. At 48
+polls a day that is 200 to 400 pages a day; size `LIVE_MONTHLY_UNITS`
+accordingly. The job stops polling when the page budget is used up. Switching
+back is just `LIVE_PROVIDER` = `aerodatabox`.
 
 Each GitHub Pages deploy after a poll takes about a minute, and the Pages
 cache can add up to ten minutes, so the badge shows how old the data is.
