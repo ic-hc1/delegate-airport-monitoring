@@ -217,8 +217,8 @@ def main():
     sched = load(SCHEDULE, {}).get("flights", [])
     live = load(LIVE, {})
     live.setdefault("flights", {}); live.setdefault("calls", {}); live.setdefault("usage", {})
-    if live.get("month") != month:
-        live["usage"] = {}; live["month"] = month
+    if live.get("month") != month or live.get("provider") != PROVIDER:   # new month or provider switch: fresh budget
+        live["usage"] = {}; live["month"] = month; live.pop("remainingUnits", None); live.pop("budgetExhausted", None)
     used = int(live["usage"].get("units", 0))
     live["provider"] = PROVIDER; live["budget"] = BUDGET
     notes, spent = [], 0
