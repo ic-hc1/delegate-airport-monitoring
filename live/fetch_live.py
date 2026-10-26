@@ -280,8 +280,10 @@ def backfill(start_s, end_s):
     """Walk the range in windows just under 12 h and store every arrival's final record in live-history.json."""
     fetch = PROVIDERS.get(PROVIDER)
     if not fetch: raise SystemExit(f"unknown LIVE_PROVIDER {PROVIDER!r}")
-    start = dt.datetime.fromisoformat(start_s).replace(tzinfo=MANILA)
-    end = dt.datetime.fromisoformat(end_s).replace(tzinfo=MANILA)
+    start = dt.datetime.fromisoformat(start_s.strip()).replace(tzinfo=MANILA)
+    end = dt.datetime.fromisoformat(end_s.strip()).replace(tzinfo=MANILA)
+    if start > end: start, end, start_s, end_s = end, start, end_s, start_s   # typed the other way round: still do the right thing
+    print(f"backfill range {start:%Y-%m-%d %H:%M} .. {end:%Y-%m-%d %H:%M} Manila")
     hist = load(HISTORY, {})
     hist.setdefault("flights", {}); hist.setdefault("terminals", {"byFlight": {}})
     windows, spent = 0, 0
