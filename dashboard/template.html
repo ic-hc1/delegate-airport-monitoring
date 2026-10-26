@@ -227,6 +227,7 @@ table.plain td.r, table.plain th.r { text-align: right; }
 .live.delayed { background: var(--warn-soft); color: var(--warn-ink); } .live.delayed::before { background: var(--warn); }
 .live.cancelled, .live.diverted { background: var(--crit-soft); color: var(--crit-ink); } .live.cancelled::before, .live.diverted::before { background: var(--crit); }
 .live.scheduled::before { background: var(--line-strong); }
+.live.overdue { background: var(--surface-2); color: var(--muted); } .live.overdue::before { background: var(--line-strong); }
 .live .det { font-weight: 500; color: var(--fg-2); white-space: normal; }
 .live.stale { opacity: .6; }
 .liveat { font-size: 12px; opacity: .85; display: inline-flex; align-items: center; gap: 6px; }
@@ -593,14 +594,16 @@ function chgHtml(r) {
 function liveHtml(f) {
   const l = liveFor(f); if (!l) return "";
   const stale = l.at && (Date.now() - Date.parse(l.at)) > 90 * 60000;
-  const label = { landed: "Landed", active: "En route", delayed: "Delayed", cancelled: "Cancelled", diverted: "Diverted", scheduled: "On time" }[l.st] || l.raw || "Status";
+  const dueMin = toMin(l.est || l.sch || f.time), nowM = manilaNow();
+  const overdue = ["scheduled", "active", "delayed"].includes(l.st) && dueMin != null && (f.date < nowM.date || (f.date === nowM.date && dueMin < nowM.min - 45));
+  const label = overdue ? (l.raw === "Unknown" ? "No live tracking" : "No landing update") : { landed: "Landed", active: "En route", delayed: "Delayed", cancelled: "Cancelled", diverted: "Diverted", scheduled: "On time" }[l.st] || l.raw || "Status";
   const t = l.st === "landed" ? (l.act || l.est || l.sch) : (l.est || l.sch);
   const parts = [];
   if (t && l.st !== "cancelled") parts.push((l.st === "landed" ? "" : l.est && l.est !== l.sch ? "est " : "") + t);
   if (l.sch && f.time && l.sch !== f.time) parts.push(`sched ${l.sch}`);
   if (l.term) parts.push("T" + l.term); if (l.gate) parts.push("gate " + l.gate); if (l.belt) parts.push("belt " + l.belt);
   if (l.from) parts.push("from " + l.from);
-  return `<div class="live ${esc(l.st)}${stale ? " stale" : ""}" title="${esc(l.raw || "")}${l.at ? " · updated " + new Date(l.at).toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : ""}">${label}<span class="det">${esc(parts.join(" · "))}</span></div>`;
+  return `<div class="live ${overdue ? "overdue" : esc(l.st)}${stale ? " stale" : ""}" title="${esc(l.raw || "")}${l.at ? " · updated " + new Date(l.at).toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : ""}">${label}<span class="det">${esc(parts.join(" · "))}</span></div>`;
 }
 async function loadLive() {
   try {

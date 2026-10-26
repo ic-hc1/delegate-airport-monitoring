@@ -25,7 +25,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Fetch live arrivals
+      - name: Poll live arrivals in a loop
+        # GitHub's free scheduler fires this job only every few hours, so one run keeps polling
+        # (every 30 min, budget permitting) for up to 5.5 h and commits each change as it goes.
+        timeout-minutes: 350
         env:
           LIVE_PROVIDER: ${{ vars.LIVE_PROVIDER || 'aerodatabox' }}
           LIVE_MONTHLY_UNITS: ${{ vars.LIVE_MONTHLY_UNITS || '400' }}
@@ -33,20 +36,26 @@ jobs:
           LIVE_AIRPORTS: ${{ vars.LIVE_AIRPORTS || 'MNL,CRK' }}
           AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
           AEROAPI_KEY: ${{ secrets.AEROAPI_KEY }}
+          FORCE_FIRST: ${{ inputs.force && '--force' || '' }}
         run: |
           if [ -z "$AERODATABOX_KEY" ] && [ -z "$AEROAPI_KEY" ]; then
             echo "No provider key configured (secrets.AERODATABOX_KEY or secrets.AEROAPI_KEY); nothing to do."
             exit 0
           fi
-          python3 live/fetch_live.py ${{ inputs.force && '--force' || '' }}
-      - name: Commit live.json
-        run: |
-          if git diff --quiet -- docs/live.json && [ -z "$(git ls-files --others --exclude-standard docs/live.json)" ]; then
-            echo "live.json unchanged"; exit 0
-          fi
           git config user.name "live-status bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/live.json
-          git commit -m "Live status $(date -u +%Y-%m-%dT%H:%MZ)"
-          git pull --rebase origin master
-          git push origin HEAD:master
+          end=$(( $(date +%s) + 5*3600 + 25*60 ))
+          flag="$FORCE_FIRST"
+          while :; do
+            echo "=== poll at $(TZ=Asia/Manila date '+%Y-%m-%d %H:%M') Manila"
+            git pull -q --rebase origin master || true
+            python3 live/fetch_live.py $flag || echo "poll failed; will retry next round"
+            flag=""
+            if ! git diff --quiet -- docs/live.json; then
+              git add docs/live.json
+              git commit -qm "Live status $(date -u +%Y-%m-%dT%H:%MZ)"
+              for i in 1 2 3 4; do git pull -q --rebase origin master && git push -q origin HEAD:master && break || sleep 15; done
+            fi
+            [ "$(date +%s)" -ge "$end" ] && break
+            sleep 1800
+          done

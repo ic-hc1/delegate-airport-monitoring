@@ -100,8 +100,9 @@ names = {}
 if names_files:
     import openpyxl
     for p in names_files:
-        ws = openpyxl.load_workbook(p, data_only=True)["Master List"]
-        data = list(ws.iter_rows(values_only=True))
+        wb = openpyxl.load_workbook(p, data_only=True)
+        if "Master List" not in wb.sheetnames: continue      # not a hotel master list
+        data = list(wb["Master List"].iter_rows(values_only=True))
         hdr = list(data[3])
         for r in data[4:]:
             d = dict(zip(hdr, r))
