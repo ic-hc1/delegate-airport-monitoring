@@ -1,0 +1,44 @@
+name: Live flight backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: Start of the range, Manila time (YYYY-MM-DDTHH:MM)
+        default: "2026-10-23T00:00"
+      end:
+        description: End of the range, Manila time (YYYY-MM-DDTHH:MM)
+        default: "2026-10-26T12:00"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch past arrivals into docs/live-history.json
+        env:
+          LIVE_PROVIDER: ${{ vars.LIVE_PROVIDER || 'aerodatabox' }}
+          LIVE_UNITS_PER_CALL: ${{ vars.LIVE_UNITS_PER_CALL || '2' }}
+          LIVE_AIRPORTS: ${{ vars.LIVE_AIRPORTS || 'MNL,CRK' }}
+          AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
+          AEROAPI_KEY: ${{ secrets.AEROAPI_KEY }}
+        run: python3 live/fetch_live.py --backfill "${{ inputs.start }}" "${{ inputs.end }}"
+      - name: Commit
+        run: |
+          git config user.name "live-status bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/live-history.json
+          git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
+          git commit -qm "Live history backfill ${{ inputs.start }} .. ${{ inputs.end }}"
+          for i in 1 2 3 4; do git pull -q --rebase origin master && git push -q origin HEAD:master && break || sleep 15; done

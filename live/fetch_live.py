@@ -8,6 +8,9 @@ budget. Providers: aerodatabox (default, RapidAPI) or aeroapi (FlightAware).
   python3 live/fetch_live.py            # normal run (needs a provider key in the environment)
   python3 live/fetch_live.py --force    # ignore the polling interval (still respects the budget)
   python3 live/fetch_live.py --dry-run  # plan only, no API call, no file write
+  python3 live/fetch_live.py --backfill 2026-10-23T00:00 2026-10-26T08:00
+                                        # one-off: fetch every 12 h window in that Manila-time range into
+                                        # docs/live-history.json (final statuses of past flights; ~2 units per window)
 
 Environment:
   LIVE_PROVIDER         aerodatabox | aeroapi            (default aerodatabox)
@@ -271,5 +274,40 @@ def main():
     if not DRY:
         LIVE.write_text(json.dumps(live, separators=(",", ":"), ensure_ascii=False) + "\n")
 
+HISTORY = ROOT / "docs" / "live-history.json"
+
+def backfill(start_s, end_s):
+    """Walk the range in windows just under 12 h and store every arrival's final record in live-history.json."""
+    fetch = PROVIDERS.get(PROVIDER)
+    if not fetch: raise SystemExit(f"unknown LIVE_PROVIDER {PROVIDER!r}")
+    start = dt.datetime.fromisoformat(start_s).replace(tzinfo=MANILA)
+    end = dt.datetime.fromisoformat(end_s).replace(tzinfo=MANILA)
+    hist = load(HISTORY, {})
+    hist.setdefault("flights", {}); hist.setdefault("terminals", {"byFlight": {}})
+    windows, spent = 0, 0
+    for airport in AIRPORTS:
+        cur = start
+        while cur < end:
+            w_end = min(cur + WINDOW, end)
+            if DRY: print(f"{airport}: would fetch {cur:%Y-%m-%d %H:%M} .. {w_end:%H:%M}"); cur = w_end; continue
+            try:
+                found, cost = fetch(airport, cur, w_end)
+            except urllib.error.HTTPError as e:
+                print(f"{airport}: HTTP {e.code} for {cur:%Y-%m-%d %H:%M}: {e.read()[:200].decode('utf-8', 'replace')}"); cur = w_end; continue
+            spent += cost; windows += 1
+            for k, v in found.items():
+                v["at"] = dt.datetime.now(MANILA).isoformat(); v["ap"] = airport
+                hist["flights"][k] = v
+                if airport == "MNL" and v.get("term"): hist["terminals"]["byFlight"][k.split("_", 1)[1]] = v["term"]
+            print(f"{airport}: {cur:%Y-%m-%d %H:%M} .. {w_end:%H:%M} -> {len(found)} arrivals")
+            cur = w_end
+    hist["updatedAt"] = dt.datetime.now(MANILA).isoformat(); hist["range"] = [start_s, end_s]; hist["provider"] = PROVIDER
+    if DIAG: hist["lastResponse"] = DIAG[-1]
+    print(f"backfill: {windows} windows, {spent} units, {len(hist['flights'])} flights in history")
+    if not DRY: HISTORY.write_text(json.dumps(hist, separators=(",", ":"), ensure_ascii=False) + "\n")
+
 if __name__ == "__main__":
-    main()
+    if "--backfill" in sys.argv:
+        i = sys.argv.index("--backfill"); backfill(sys.argv[i + 1], sys.argv[i + 2])
+    else:
+        main()

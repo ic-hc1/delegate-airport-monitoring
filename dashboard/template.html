@@ -605,12 +605,20 @@ function liveHtml(f) {
   if (l.from) parts.push("from " + l.from);
   return `<div class="live ${overdue ? "overdue" : esc(l.st)}${stale ? " stale" : ""}" title="${esc(l.raw || "")}${l.at ? " · updated " + new Date(l.at).toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : ""}">${label}<span class="det">${esc(parts.join(" · "))}</span></div>`;
 }
+let liveHistory = null;
 async function loadLive() {
+  if (liveHistory === null) {   // one-off backfill of past days: fetched once, live records take precedence
+    try { const h = await fetch("live-history.json?t=" + Date.now(), { cache: "no-store" }); liveHistory = h.ok ? await h.json() : {}; } catch (e) { liveHistory = {}; }
+  }
   try {
     const r = await fetch("live.json?t=" + Date.now(), { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
     const j = await r.json(); state.live = j; state.liveAt = j.updatedAt || null;
   } catch (e) { state.live = state.live || { flights: {} }; }
+  if (liveHistory && liveHistory.flights) {
+    state.live.flights = Object.assign({}, liveHistory.flights, state.live.flights || {});
+    state.live.terminals = state.live.terminals || {}; state.live.terminals.byFlight = Object.assign({}, (liveHistory.terminals || {}).byFlight || {}, state.live.terminals.byFlight || {});
+  }
   renderLiveAt(); renderBoard(); renderTiles(filterRows(dateKeyRows(state.date)), flightsOf(filterRows(dateKeyRows(state.date))));
 }
 function renderLiveAt() {
