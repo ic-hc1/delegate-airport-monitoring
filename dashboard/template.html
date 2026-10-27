@@ -413,8 +413,8 @@ indexRows();
 const overrides = new Map();
 function applyOverride(code, ov) {
   const r = ROWS.find(x => x.c === code); if (!r) return false;
-  if (!r.orig) r.orig = { d: r.d, t: r.t, fl: r.fl, fr: r.fr };
-  if (ov) { r.chg = ov; r.d = ov.d || null; r.t = ov.t || null; r.fl = ov.fl || null; r.fr = ov.fl || "unknown"; overrides.set(code, ov); }
+  if (!r.orig) r.orig = { d: r.d, t: r.t, fl: r.fl, fr: r.fr, h: r.h };
+  if (ov) { r.chg = ov; r.d = ov.d || null; r.t = ov.t || null; r.fl = ov.fl || null; r.fr = ov.fl || "unknown"; r.h = ov.h || r.orig.h; overrides.set(code, ov); }
   else { Object.assign(r, r.orig); delete r.chg; overrides.delete(code); }
   return true;
 }
@@ -587,6 +587,7 @@ function terminalTile(flights) {
 function chgHtml(r) {
   if (!r.chg) return ""; const o = r.orig || {}; const c = r.chg; const parts = [];
   parts.push(`was ${o.fl ? canon(o.fl) : "no flight"} ${fmtDate(o.d)}${o.t ? " " + o.t : ""}`);
+  if (c.h && o.h && c.h !== o.h) parts.push(`moved from ${esc(hShort(o.h))}`);
   if (c.checkin) parts.push(`${esc(c.checkin).toLowerCase()} hotel check-in`);
   if (c.note) parts.push(esc(c.note));
   return `<div class="chg-line">Rebooked${c.ticket ? " #" + esc(c.ticket) : ""} · ${parts.join(" · ")}</div>`;
